@@ -17,6 +17,19 @@ const isCurve = (s) => s.sType !== 'STRAIGHT';
 const conv = (kph) => (state.unit === 'MPH' ? kph / KPH_PER_MPH : kph);
 const fmtDist = (d) => (Math.round(d * 10) / 10).toString();
 
+let active = -1;
+function setActive(i) {
+  active = i;
+  document.querySelectorAll('#rows .row').forEach((r) => r.classList.toggle('active', +r.dataset.i === i));
+  document.querySelectorAll('#sketch g[data-i] .seg').forEach((p) => p.classList.toggle('active', +p.parentNode.dataset.i === i));
+  const s = state.sections[i];
+  $('caption').textContent = s && i >= 0 ? describe(s, i) : '\u00a0';
+}
+const TYPE_NAME = { STRAIGHT: 'Straight', CURVE_LEFT: 'Left curve', CURVE_RIGHT: 'Right curve' };
+const describe = (s, i) => `Section ${i + 1}: ${s.description ? s.description + ' – ' : ''}${TYPE_NAME[s.sType].toLowerCase()}, ${s.sLength} m${s.sType !== 'STRAIGHT' ? `, radius ${s.radius} m` : ''}`;
+$('rows').addEventListener('focusin', (e) => { const r = e.target.closest('.row'); if (r) setActive(+r.dataset.i); });
+$('rows').addEventListener('mouseover', (e) => { const r = e.target.closest('.row'); if (r && +r.dataset.i !== active) setActive(+r.dataset.i); });
+
 // ---------- data entry ----------
 function renderRows(focus) {
   $('rows').innerHTML = state.sections.map((s, i) => `
@@ -140,13 +153,12 @@ function renderSketch(sections) {
   svg.setAttribute('viewBox', sk.viewBox);
   const mk = (d, cls, seg) => {
     const p = el('path', { d, class: cls });
-    p.addEventListener('mouseenter', () => { $('caption').textContent = seg.text; });
-    p.addEventListener('mouseleave', () => { $('caption').innerHTML = '&nbsp;'; });
-    p.addEventListener('focus', () => { $('caption').textContent = seg.text; });
     return p;
   };
   for (const seg of sk.segments) {
-    const g = el('g'); g.appendChild(mk(seg.path, 'seg', seg)); g.appendChild(mk(seg.path, 'hit', seg));
+    const g = el('g', { 'data-i': seg.index });
+    g.addEventListener('mouseenter', () => setActive(seg.index));
+    g.appendChild(mk(seg.path, 'seg', seg)); g.appendChild(mk(seg.path, 'hit', seg));
     g.firstChild.appendChild(el('title', {}, seg.text));
     svg.appendChild(g);
   }
@@ -157,18 +169,19 @@ function renderSketch(sections) {
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
     svg.appendChild(el('rect', { x: a.x - f / 2 + c * cell, y: a.y - f / 2 + r * cell, width: cell, height: cell, fill: (r + c) % 2 ? '#fff' : '#000', stroke: '#000', 'stroke-width': f * 0.02 }));
   }
+  setActive(active < sections.length ? active : -1);
   svg.appendChild(el('text', { x: a.x, y: a.y + f * 1.3, 'text-anchor': 'middle', 'font-size': f * 0.8 }, 'Asset'));
 }
 
 function niceMax(v) {
-  const step = v > 100 ? 20 : 10;
+  const step = v > 1000 ? 500 : v > 100 ? 50 : 10;
   return Math.max(step, Math.ceil(v / step) * step);
 }
 
 function renderChart(sections) {
   const pts = chartSeries(sections, state.start);
   const W = 800, H = 360, m = { l: 55, r: 15, t: 10, b: 45 };
-  const maxD = Math.max(...pts.map((p) => p.distance), 1);
+  const maxD = niceMax(Math.max(...pts.map((p) => p.distance), 1));
   const maxS = niceMax(Math.max(...pts.flatMap((p) => VEHICLES.map((v) => conv(p.speeds[v.id])))));
   const x = (d) => m.l + (1 - d / maxD) * (W - m.l - m.r);
   const y = (s) => H - m.b - (s / maxS) * (H - m.t - m.b);
@@ -204,14 +217,21 @@ function renderTable(sections) {
     <p class="hint">Speeds in ${state.unit === 'MPH' ? 'mph' : 'km/h'} at the asset-side end of each section.</p>`;
 }
 
+function renderCards(sections) {
+  const r = buildRouteSpeeds(sections, state.start)[0];
+  const unit = state.unit === 'MPH' ? 'mph' : 'km/h';
+  $('cards').innerHTML = VEHICLES.map((v) => `<div class="card" style="--c:${v.colour}"><b>${Math.round(conv(r.exitSpeeds.get(v.id).speed))} ${unit}</b><span>${esc(v.name)}</span></div>`).join('');
+  $('total').textContent = `· route length ${fmtDist(sections.reduce((t, s) => t + s.sLength, 0))} m`;
+}
+
 function update() {
   save();
   const bad = state.sections.some((s) => Object.keys(validateSection(s)).length);
   const warn = '<p class="warn">Fix the invalid route sections to update the results.</p>';
   $('print-title').textContent = state.title;
   $('print-summary').textContent = `Speeds in ${state.unit === 'MPH' ? 'miles per hour' : 'kilometres per hour'}; vehicles start ${state.start === 'ROLLING' ? 'at maximum speed (rolling start)' : 'stationary (standing start)'}.`;
-  if (bad) { $('chart').innerHTML = $('table').innerHTML = warn; $('sketch').replaceChildren(); return; }
-  renderSketch(state.sections); renderChart(state.sections); renderTable(state.sections);
+  if (bad) { $('cards').innerHTML = ''; $('chart').innerHTML = $('table').innerHTML = warn; $('sketch').replaceChildren(); return; }
+  renderCards(state.sections); renderSketch(state.sections); renderChart(state.sections); renderTable(state.sections);
 }
 
 renderRows();

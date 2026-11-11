@@ -52,3 +52,30 @@ test('sketch: left curve bends up (y-up), right curve down; quarter turn ends co
   const r = buildSketch([{ sType: 'CURVE_RIGHT', sLength: Math.PI * 10 * 2, radius: 10 }]);
   assert.equal((r.segments[0].path.match(/A /g) || []).length, 2);
 });
+
+test('audit: speed curves monotonic and continuous across band joins (<0.25 km/h)', () => {
+  for (const v of VEHICLES) {
+    let prev = -1;
+    for (let d = 0; d <= 500; d += 0.25) { const s = speedAtDistance(v, d); assert.ok(s >= prev - 1e-9); prev = s; }
+    for (let i = 1; i < v.bands.length; i++) {
+      const d = v.bands[i].from;
+      close(v.bands[i - 1].a * d ** v.bands[i - 1].b, v.bands[i].a * d ** v.bands[i].b, 0.25);
+    }
+  }
+});
+
+test('audit: cornering caps are continuous and match terminal speed (cross-check of constants)', () => {
+  for (const v of VEHICLES.filter((x) => x.slipSpeed)) {
+    close(maxCorneringSpeed(v, v.slipRadius), v.slipSpeed, 1e-6);
+    assert.ok(Math.abs(v.plateau / v.slipSpeed - 1) < 0.002, v.name);
+  }
+});
+
+test('audit: results do not depend on subdivision', () => {
+  const secs = [{ sType: 'STRAIGHT', sLength: 300 }, { sType: 'CURVE_LEFT', sLength: 80, radius: 40 },
+    { sType: 'STRAIGHT', sLength: 120 }, { sType: 'CURVE_RIGHT', sLength: 200, radius: 140 }];
+  for (const start of ['ROLLING', 'STANDING']) {
+    const a = buildRouteSpeeds(secs, start)[0], b = buildRouteSpeeds(subdivide(secs), start)[0];
+    for (const v of VEHICLES) close(a.exitSpeeds.get(v.id).speed, b.exitSpeeds.get(v.id).speed, 1e-9);
+  }
+});

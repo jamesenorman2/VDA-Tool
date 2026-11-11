@@ -36,11 +36,22 @@
     </div>
   </section>
 
+
   <section class="panel" id="sketch-panel"><h2>Route sketch</h2>
     <svg id="sketch" role="img" aria-label="Route sketch"></svg>
     <p id="caption" aria-live="polite">&nbsp;</p></section>
+  <section class="panel" id="summary-panel"><h2>Speed at the asset <span id="total" class="hint"></span></h2><div id="cards" class="cards"></div></section>
+
   <section class="panel" id="chart-panel"><h2>Speed against distance to asset</h2><div id="chart"></div></section>
   <section class="panel" id="table-panel"><h2>Speeds</h2><div id="table"></div></section>
+  <section class="panel" id="notes"><h2>Assumptions and limitations</h2>
+    <ul>
+      <li>Estimates of <em>maximum achievable</em> speed on a flat, level, dry road; no gradient, camber, surface or tyre variation, and no driver error.</li>
+      <li>Acceleration uses empirical power-law fits (speed = a·distance<sup>b</sup>) per vehicle class, capped at a terminal speed beyond 440 m. They are fitted curves, not first-principles models, and are only as good as their source data.</li>
+      <li>Cornering is steady-state: v = √(μ·r·g), capped at a per-class slip speed. Braking into a curve is assumed to be instantaneous, and a vehicle is assumed able to hold the limit speed throughout the curve.</li>
+      <li>The published fits are very slightly discontinuous where bands join (≤ 0.2 km/h) and speeds are rounded to whole numbers in the table.</li>
+      <li>Results support, but do not replace, a competent specialist assessment.</li>
+    </ul></section>
 </main>
 <script type="module" src="src/app.js"></script>
 </body>
