@@ -166,7 +166,9 @@ function quickAdd() {
   // Keep only the lines that failed, so they can be corrected and re-submitted.
   $('qe').value = errors.length ? text.split(/\r?\n/).filter((l, ln) => errors.some((e) => e.startsWith(`Line ${ln + 1}:`))).join('\n') : '';
   status.className = errors.length ? 'hint err' : 'hint ok';
-  status.textContent = [sections.length ? `Added ${sections.length} section${sections.length > 1 ? 's' : ''}.` : '', ...notes, ...errors].filter(Boolean).join(' ');
+  const summary = (x) => `${TYPE_NAME[x.sType].toLowerCase()} ${x.sLength} m${x.sType !== 'STRAIGHT' ? `, radius ${x.radius} m` : ''}`;
+  const shown = sections.slice(0, 3).map(summary).join('; ') + (sections.length > 3 ? `; …` : '');
+  status.textContent = [sections.length ? `Added ${sections.length}: ${shown}.` : '', ...notes, ...errors].filter(Boolean).join(' ');
   $('rows').lastElementChild?.scrollIntoView({ block: 'nearest' });
 }
 $('qe').addEventListener('keydown', (e) => {
@@ -174,7 +176,12 @@ $('qe').addEventListener('keydown', (e) => {
 });
 $('qe').addEventListener('paste', () => setTimeout(() => { if (/\n.*\S/.test($('qe').value.trim())) quickAdd(); }, 0));
 
-const csvCell = (v) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+// Cells starting with = + - @ would be run as formulas by Excel/Sheets, so neutralise them.
+const csvCell = (v) => {
+  let t = String(v);
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(t)) t = `'${t}`;
+  return /[",\n\r]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+};
 function download(name, rows) {
   const blob = new Blob([rows.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n'], { type: 'text/csv' });
   const a = document.createElement('a');

@@ -23,3 +23,15 @@ test('radius over 150 becomes a straight with a note', () => {
   assert.equal(r.sections[0].sType, 'STRAIGHT');
   assert.equal(r.notes.length, 1);
 });
+
+test('"in" at the start of a description is not inches; attached inches still work', () => {
+  const a = q('s 45 in High Street').sections[0];
+  assert.equal(a.sLength, 45); assert.equal(a.description, 'in High Street');
+  assert.equal(q('s 100in').sections[0].sLength, 2.54);
+  assert.equal(q('s 12"').sections[0].sLength, 0.305);
+});
+test('trailing dot and glued type letter', () => {
+  assert.equal(q('s 45.').sections[0].sLength, 45);
+  assert.deepEqual(q('S45\nl30 25').sections.map((s) => [s.sType, s.sLength, s.radius]), [['STRAIGHT', 45, 150], ['CURVE_LEFT', 30, 25]]);
+  assert.equal(q('straight 5').sections[0].sLength, 5);
+});
