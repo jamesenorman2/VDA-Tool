@@ -11,8 +11,9 @@ npm start      # serves http://localhost:8080
 npm test       # unit tests for the maths and sketch geometry
 ```
 
+- `src/quickentry.js` – quick-entry/CSV line parser (units, left/right/straight)
 - `src/maths.js` – acceleration curves, cornering limits, route traversal, chart subdivision, validation
-- `src/sketch.js` – route sketch geometry (left curves bend left; asset drawn at the origin)
+- `src/sketch.js` – route sketch geometry (drawn in direction of travel; left = driver's left)
 - `src/app.js` – UI: settings, data entry (validation, keyboard shortcuts), outputs, print view
 
-Sections are listed from the asset outwards (index 0 is nearest the asset). State is kept in `localStorage`.
+Sections are stored nearest-asset first; the "Entry order" setting (default: start of route → asset) controls how they are shown, numbered and added. State is kept in `localStorage`.

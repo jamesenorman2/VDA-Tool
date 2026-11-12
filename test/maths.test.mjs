@@ -48,7 +48,7 @@ test('subdivision keeps total length and marks one major piece per section', () 
 test('sketch: left curve bends up (y-up), right curve down; quarter turn ends correctly', () => {
   const s = buildSketch([{ sType: 'CURVE_LEFT', sLength: Math.PI * 10 / 2, radius: 10 }]);
   assert.match(s.segments[0].path, /A 10 10 0 0 0 /);
-  close(s.startPoint.x, 10, 0.01); close(Math.abs(s.startPoint.y), 10, 0.01);
+  close(Math.abs(s.assetPoint.x - s.startPoint.x), 10, 0.01); close(Math.abs(s.assetPoint.y - s.startPoint.y), 10, 0.01);
   const r = buildSketch([{ sType: 'CURVE_RIGHT', sLength: Math.PI * 10 * 2, radius: 10 }]);
   assert.equal((r.segments[0].path.match(/A /g) || []).length, 2);
 });
@@ -78,4 +78,12 @@ test('audit: results do not depend on subdivision', () => {
     const a = buildRouteSpeeds(secs, start)[0], b = buildRouteSpeeds(subdivide(secs), start)[0];
     for (const v of VEHICLES) close(a.exitSpeeds.get(v.id).speed, b.exitSpeeds.get(v.id).speed, 1e-9);
   }
+});
+
+test('sketch is drawn in travel direction: start of route first, driver-left turns left', () => {
+  // sections asset-first: [asset-side right curve, start-side straight]; travel: straight 10 then right quarter-turn
+  const s = buildSketch([{ sType: 'CURVE_RIGHT', sLength: Math.PI * 10 / 2, radius: 10 }, { sType: 'STRAIGHT', sLength: 10 }]);
+  assert.equal(s.segments[0].index, 1); // straight is walked first
+  assert.equal(s.segments[1].index, 0);
+  close(Math.hypot(s.assetPoint.x - s.startPoint.x, s.assetPoint.y - s.startPoint.y), Math.hypot(20, 10), 0.01);
 });
