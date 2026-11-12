@@ -1,5 +1,6 @@
 // Route sketch geometry. Computed in a y-up maths frame, emitted in SVG (y-down) coordinates.
-// index 0 = asset end, which is drawn at the origin.
+// Drawn in the direction of travel: the route start is at the origin heading +x, the asset is the far end.
+// Left/right are the driver's left/right. sections[0] is nearest the asset, so we walk the array backwards.
 
 const rot = (p, a) => ({ x: p.x * Math.cos(a) - p.y * Math.sin(a), y: p.x * Math.sin(a) + p.y * Math.cos(a) });
 const add = (p, q) => ({ x: p.x + q.x, y: p.y + q.y });
@@ -15,7 +16,8 @@ export function buildSketch(sections) {
   let o = { x: 0, y: 0 };
   let d = { x: 1, y: 0 };
   const raw = [];
-  sections.forEach((s, index) => {
+  for (let index = sections.length - 1; index >= 0; index--) {
+    const s = sections[index];
     if (s.sType === 'STRAIGHT') {
       const dest = { x: o.x + d.x * s.sLength, y: o.y + d.y * s.sLength };
       raw.push({ index, kind: 'line', pts: [o, dest] });
@@ -36,7 +38,7 @@ export function buildSketch(sections) {
       o = ends[ends.length - 1];
       d = rot(d, sign * theta);
     }
-  });
+  }
 
   const all = [{ x: 0, y: 0 }, ...raw.flatMap((r) => r.pts)];
   const bb = (pts) => ({
@@ -72,7 +74,7 @@ export function buildSketch(sections) {
   return {
     segments, flag,
     viewBox: [box.minX - margin, box.minY - margin, w + 2 * margin, h + 2 * margin].map(f).join(' '),
-    assetPoint: scr({ x: 0, y: 0 }),
-    startPoint: scr(raw.length ? raw[raw.length - 1].pts[raw[raw.length - 1].pts.length - 1] : { x: 0, y: 0 }),
+    startPoint: scr({ x: 0, y: 0 }),
+    assetPoint: scr(raw.length ? raw[raw.length - 1].pts[raw[raw.length - 1].pts.length - 1] : { x: 0, y: 0 }),
   };
 }

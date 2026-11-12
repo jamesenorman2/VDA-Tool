@@ -16,10 +16,15 @@ fieldset label { display: block; }
 button { cursor: pointer; padding: .3rem .7rem; }
 .hint { color: #555; font-size: .85rem; }
 .marker { font-weight: 600; color: #1d3557; margin: .4rem 0; }
-.row { display: grid; grid-template-columns: 7.5rem minmax(6rem, 1fr) 5.5rem 5.5rem auto; gap: .4rem; align-items: center; margin-bottom: .3rem; }
+.row { display: grid; grid-template-columns: 1.6rem 7.5rem minmax(6rem, 1fr) 5.5rem 5.5rem auto; gap: .4rem; align-items: center; margin-bottom: .3rem; }
 .row input, .row select { padding: .3rem; min-width: 0; }
 .row input.invalid { border: 2px solid #c00; background: #fee; }
 .row.active { background: #fff3cd; border-radius: 4px; }
+.row .num { font-weight: 600; color: #1d3557; text-align: right; }
+.row .info { grid-column: 2 / -1; color: #555; font-size: .75rem; margin-top: -.2rem; }
+.qe { display: block; } .qe textarea { display: block; width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; padding: .4rem; margin-top: .3rem; }
+#qe-status.err { color: #c00; } #qe-status.ok { color: #2a7a3b; }
+#table-panel h2 button { font-size: .8rem; margin-left: .75rem; }
 .row .err { grid-column: 1 / -1; color: #c00; font-size: .8rem; }
 .row .btns { white-space: nowrap; }
 .actions { margin-top: .6rem; display: flex; gap: .5rem; flex-wrap: wrap; }
