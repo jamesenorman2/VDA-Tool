@@ -2,7 +2,7 @@
 
 This plan follows [spec v0.2](spec-map-attack-vectors.md). Each work package (WP) is a reviewable pull request with its own tests. The follow-up questions in spec §13 are answered; the only thing still awaited is the Word template file.
 
-The app is deployed as a **static website**. There is no server, a project's data stays in the browser, and the MapTiler key is kept in browser settings, restricted to the site's address.
+The app is deployed as a **static website on Vercel** (vda-tool.vercel.app, auto-deployed from `main`). There is no server, a project's data stays in the browser, and the MapTiler key is kept in browser settings, restricted to the site's address.
 
 ## Guiding rules
 

@@ -4,7 +4,7 @@ Vehicle dynamics assessment for hostile vehicle mitigation: given an approach ro
 (straights and curves ending at an asset), it computes the maximum speeds six vehicle
 classes can reach, with a route sketch, speed-vs-distance chart and speed table.
 
-Dependency-free static app (vanilla ES modules, hand-rolled SVG).
+Static app (vanilla ES modules, hand-rolled SVG; MapLibre vendored for the map page), hosted on Vercel at https://vda-tool.vercel.app and deployed automatically from `main`.
 
 ```bash
 npm start      # serves http://localhost:8080 (route calculator); map assessment at /map.html
