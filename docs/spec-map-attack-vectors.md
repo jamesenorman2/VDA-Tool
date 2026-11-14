@@ -313,9 +313,14 @@ P1 acceptance criteria (draft):
 
 ## 13. Follow-up questions (raised by the v0.2 answers)
 
-- **F1. Imagery and tile provider.** The OpenStreetMap tile servers do not allow use by applications like this one, and aerial imagery needs a licensed provider. Options: MapTiler, Esri World Imagery, Mapbox, or Ordnance Survey (OS Maps API, good UK detail, has a free tier). These need an API key and have licence terms that restrict printing in reports. Which provider does the organisation have, or want?
-- **F2. Sensitive projects.** Q3 makes online services the default, while Q20 adds protective markings. Should choosing a marking above a set level automatically switch off online services (tiles, search, OSM) for that project?
-- **F3. ISO 22343 details.** Confirm which parts apply (22343-1 rating, 22343-2 application/assessment). For each of the six classes, give the test vehicle designation in ISO 22343, PAS 68 and ASTM F2656, so the required-rating output is correct.
-- **F4. Marking list.** Which protective markings should the report offer (e.g. OFFICIAL, OFFICIAL-SENSITIVE, client-specific), and what handling text goes with each?
-- **F5. Reviewer check.** With the tool producing a full assessment (Q24), what must a reviewer do before the report can be issued: accept each generated vector, or sign off the assessment as a whole?
-- **F6. Word report.** Is there a house Word template (styles, cover page, logo) the `.docx` must follow?
+Answered 14 Nov 2026:
+
+| # | Question | Decision |
+|---|---|---|
+| F1 | Map and imagery provider | **MapTiler free tier** (street maps + satellite under one key). It is a personal, non-commercial tool, so the free tier's terms apply. Attribution is shown on the map and in reports |
+| – | Hosting | **Static website** (e.g. GitHub Pages or Vercel). The key is entered in settings, kept in the browser and never committed. It is restricted to the site's address in the MapTiler dashboard. All site data stays in the browser; there is no server |
+| F2 | Sensitive projects | **Warn only.** A marking above OFFICIAL shows a warning that tiles, address search and OSM import send the site's location to third parties. Online services stay on |
+| F3 | Vehicle classes | **Both.** The current six classes stay the default. An **ISO 22343 class set** is offered as an option per project. Any ISO class without matching acceleration and cornering data is shown as "no data", never estimated. Each class maps to its test vehicle in ISO 22343, PAS 68 and ASTM F2656 for the rating output (mapping table still to be filled in and checked) |
+| F4 | Markings | **UK Government Security Classifications** (OFFICIAL, OFFICIAL-SENSITIVE, optional descriptors) **plus client-specific markings** defined per project, each with its own handling text |
+| F5 | Reviewer check | **Accept or reject each generated vector** (with a reason for a rejection) before sign-off. The report lists every vector's status |
+| F6 | Word report | **The user has a house template.** The `.docx` export fills that template. It needs adding to the repository at `docs/templates/report.docx` |
