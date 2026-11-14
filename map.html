@@ -32,7 +32,7 @@
         <p class="hint" id="search-status"></p>
         <details class="sub" id="key-box">
           <summary>MapTiler key <span id="key-state" class="pill"></span></summary>
-          <p class="hint">Free key from maptiler.com (non-commercial use). It is stored in this browser only. In the MapTiler dashboard, set Allowed HTTP Origins to vda-tool.vercel.app (and localhost if you run it locally). Without a key, streets come from OpenStreetMap and satellite and address search are off.</p>
+          <p class="hint" id="key-hint"></p>
           <form id="key-form" class="inline">
             <input id="key" type="password" autocomplete="off" placeholder="Paste key" aria-label="MapTiler key">
             <button>Save</button>
@@ -114,6 +114,7 @@
   <div id="map" aria-label="Map"></div>
   <div id="legend" aria-label="Impact speed colours"></div>
 </div>
+<script src="config.js"></script>
 <script src="vendor/maplibre-gl-4.7.1/maplibre-gl.js"></script>
 <script type="module" src="src/mapapp.js"></script>
 </body>
