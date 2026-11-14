@@ -57,12 +57,14 @@ export function resolveVector(project, vector) {
   const errors = [];
   if ((vector.points || []).length < 2) return { sections: [], warnings: [], errors: ['Draw at least two points'], crossing: null };
   let points = vector.points, crossing = null;
-  const lop = project.lops.find((l) => l.id === vector.lopId);
-  if (lop) {
-    crossing = clipAtLop(points, lop.points);
-    if (!crossing) errors.push('This vector does not cross the line of protection');
-    else points = crossing.points;
+  // A vector tied to one LoP uses it; otherwise the first LoP it crosses, measured along the vector.
+  const lops = vector.lopId ? project.lops.filter((l) => l.id === vector.lopId) : project.lops;
+  for (const lop of lops) {
+    const c = clipAtLop(points, lop.points);
+    if (c && (!crossing || pathLength(c.points) < pathLength(crossing.points))) crossing = { ...c, lopId: lop.id };
   }
+  if (lops.length && !crossing) errors.push('This vector does not cross the line of protection');
+  if (crossing) points = crossing.points;
   try {
     const r = polylineToSections(points, vector.vertexOptions || []);
     return { sections: r.sections, pieces: r.pieces, vertices: r.vertices, warnings: r.warnings, errors, crossing };
@@ -70,3 +72,5 @@ export function resolveVector(project, vector) {
     return { sections: [], warnings: [], errors: [...errors, e.message], crossing };
   }
 }
+
+export const pathLength = (pts) => pts.slice(1).reduce((t, p, i) => t + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);

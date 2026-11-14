@@ -134,3 +134,10 @@ test('a drawn vector resolves through clipping and fillets; missing crossing is 
   const miss = resolveVector(p, newVector({ source: 'drawn', lopId: 'l1', points: [P(0, 0), P(50, 0)] }));
   assert.deepEqual(miss.errors, ['This vector does not cross the line of protection']);
 });
+
+test('with no LoP chosen, a vector uses the first LoP it crosses along its length', () => {
+  const p = newProject({ lops: [{ id: 'far', points: [P(80, -50), P(80, 50)] }, { id: 'near', points: [P(30, -50), P(30, 50)] }] });
+  const r = resolveVector(p, newVector({ source: 'drawn', points: [P(0, 0), P(100, 0)] }));
+  assert.equal(r.crossing.lopId, 'near');
+  close(r.sections[0].sLength, 30);
+});

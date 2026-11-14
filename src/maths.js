@@ -140,3 +140,9 @@ export function validateSection(s) {
   if (s.capAfter != null && !(Number.isFinite(s.capAfter) && s.capAfter >= 0)) errors.capAfter = 'Speed cap must be a number ≥ 0';
   return errors;
 }
+
+// Nominal mass per class (kg), used for impact energy (½·m·v²).
+export const MASS_KG = { CAR: 1500, PICKUP: 2500, FLATBED: 3500, SEVENTRIGID: 7500, EIGHTEENTRIGID: 18000, THIRTYTRIGID: 30000 };
+// Impact test speeds (km/h) used by ISO 22343 / IWA 14-1 / PAS 68 test series.
+export const TEST_SPEEDS_KPH = [16, 32, 48, 64, 80, 96, 112];
+export const nextTestSpeed = (kph) => TEST_SPEEDS_KPH.find((t) => t >= kph - 1e-9) ?? null;
