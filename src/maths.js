@@ -50,7 +50,13 @@ export function maxCorneringSpeed(v, radius) {
 
 const isCurve = (s) => s.sType === 'CURVE_LEFT' || s.sType === 'CURVE_RIGHT';
 
+// A section may carry `capAfter` (km/h): a speed cap at its asset-side end, e.g. a gate or a
+// forced stop (0). After a cap, acceleration resumes from the capped speed.
 export function traverseSection(v, state, section) {
+  return applyCap(moveThrough(v, state, section), section.capAfter);
+}
+
+function moveThrough(v, state, section) {
   if (section.sLength === 0) return state;
   const base = state.accDistance != null ? state.accDistance : distanceForSpeed(v, state.speed);
   const newDistance = base + section.sLength;
@@ -60,6 +66,11 @@ export function traverseSection(v, state, section) {
     if (corner < straightSpeed) return { speed: corner, accDistance: null };
   }
   return { speed: straightSpeed, accDistance: newDistance };
+}
+
+function applyCap(state, cap) {
+  if (!Number.isFinite(cap) || state.speed <= cap) return state;
+  return { speed: Math.max(0, cap), accDistance: null };
 }
 
 export function startingSpeeds(routeStart, vehicles = VEHICLES) {
@@ -100,7 +111,10 @@ export function subdivide(sections, budget = 250, minLength = 2) {
   sections.forEach((s, parentIndex) => {
     const n = Math.max(1, Math.ceil(s.sLength / target));
     for (let k = 0; k < n; k++) {
-      out.push({ ...s, sLength: s.sLength / n, parentIndex, major: k === 0 });
+      const piece = { ...s, sLength: s.sLength / n, parentIndex, major: k === 0 };
+      // A cap sits at the asset-side end of the section, i.e. only on its k === 0 piece.
+      if (k !== 0) delete piece.capAfter;
+      out.push(piece);
     }
   });
   return out;
@@ -123,5 +137,6 @@ export function validateSection(s) {
   if (isCurve(s) && !(Number.isFinite(s.radius) && s.radius > 0 && s.radius <= MAX_RADIUS)) {
     errors.radius = `Radius must be > 0 and ≤ ${MAX_RADIUS}`;
   }
+  if (s.capAfter != null && !(Number.isFinite(s.capAfter) && s.capAfter >= 0)) errors.capAfter = 'Speed cap must be a number ≥ 0';
   return errors;
 }
