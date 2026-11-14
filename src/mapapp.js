@@ -26,7 +26,11 @@ let planURL = null, planImg = null; // object URL and natural size of the plan i
 let mode = null; // null | {kind:'draw', what, points:[]} | {kind:'pick', purpose, picks:[]}
 let selected = null; // {kind:'vector'|'lop'|'asset', id}
 let drag = null;
-let mtKey = ''; try { mtKey = localStorage.getItem(KEY_MAPTILER) || ''; } catch { /* ignore */ }
+// The site-wide key comes from config.js (written at deploy from the MAPTILER_KEY setting in
+// Vercel). A key saved in this browser overrides it; clearing the box goes back to the site key.
+const SITE_KEY = (window.VDA_CONFIG && window.VDA_CONFIG.maptilerKey) || '';
+let ownKey = ''; try { ownKey = localStorage.getItem(KEY_MAPTILER) || ''; } catch { /* ignore */ }
+let mtKey = ownKey || SITE_KEY;
 let results = new Map(); // vector id -> computed result
 
 function blankProject() {
@@ -501,12 +505,16 @@ $('search-form').addEventListener('submit', async (e) => {
 $('basemap').addEventListener('change', (e) => setBasemap(e.target.value));
 $('key-form').addEventListener('submit', (e) => {
   e.preventDefault();
-  mtKey = $('key').value.trim(); $('key').value = '';
-  try { if (mtKey) localStorage.setItem(KEY_MAPTILER, mtKey); else localStorage.removeItem(KEY_MAPTILER); } catch { /* ignore */ }
+  ownKey = $('key').value.trim(); $('key').value = '';
+  try { if (ownKey) localStorage.setItem(KEY_MAPTILER, ownKey); else localStorage.removeItem(KEY_MAPTILER); } catch { /* ignore */ }
+  mtKey = ownKey || SITE_KEY;
   renderKey(); setBasemap($('basemap').value);
 });
 function renderKey() {
-  $('key-state').textContent = mtKey ? 'saved' : 'not set';
+  $('key-state').textContent = ownKey ? 'this browser' : SITE_KEY ? 'set for the site' : 'not set';
+  $('key-hint').textContent = SITE_KEY
+    ? 'A key is set for the whole site, so maps work on every device. Paste a different key here only to override it in this browser; save an empty box to go back to the site key.'
+    : 'No site-wide key yet. Add MAPTILER_KEY in the Vercel project settings (Environment Variables) and redeploy to make maps work on every device, or paste a key here for this browser only. Without a key, streets come from OpenStreetMap and satellite and address search are off.';
   $('basemap').querySelector('[value="satellite"]').textContent = mtKey ? 'Satellite' : 'Satellite (needs key)';
 }
 

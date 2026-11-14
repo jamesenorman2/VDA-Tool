@@ -64,3 +64,9 @@ test('the version shown in the app matches package.json', async () => {
   const fs = await import('node:fs');
   assert.equal(VERSION, JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url))).version);
 });
+
+test('deploy config: MapTiler key from the environment, empty when unset', async () => {
+  const { configSource } = await import('../scripts/write-config.mjs');
+  assert.match(configSource({ MAPTILER_KEY: ' abc123 ' }), /window\.VDA_CONFIG = \{"maptilerKey":"abc123"\};/);
+  assert.match(configSource({}), /"maptilerKey":""/);
+});
