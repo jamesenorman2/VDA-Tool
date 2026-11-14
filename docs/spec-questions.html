@@ -79,7 +79,7 @@ textarea { width: 100%; box-sizing: border-box; min-height: 38px; resize: vertic
   <header class="top">
     <div class="ticks" aria-label="IWA 14-1 test speeds in km/h"><span>16</span><span>32</span><span>48</span><span>64</span><span>80</span><span>96</span><span>112 km/h</span></div>
     <h1>Map-based attack vectors: open questions</h1>
-    <p class="lead">These 27 questions decide how the VDA tool gets maps, scaled site plans and drawn attack vectors. Each one has a proposed default. Pick the default, an alternative, or write your own answer. Your answers save as you go, and everyone with the link sees each other's picks.</p>
+    <p class="lead">These 27 questions decide how the VDA tool gets maps, scaled site plans and drawn attack vectors. Each one has a proposed default. Pick the default, an alternative, or write your own answer. Your answers save as you go, and Claude reads them back to update the spec.</p>
   </header>
 
   <div class="note-banner" id="banner" hidden></div>
@@ -285,7 +285,7 @@ render();
     if (me && !saving && !dirty) mine = JSON.parse(JSON.stringify(me.answers));
     try { names = await user.profiles(everyone.map((p) => p.id)); } catch (e) { names = {}; }
     const others = everyone.filter((p) => p.id !== myId).length;
-    setStatus(canWrite ? `Saved · ${others} other ${others === 1 ? 'person has' : 'people have'} answered` : 'View only');
+    setStatus(canWrite ? (others ? `Saved · ${others} other ${others === 1 ? 'person has' : 'people have'} answered` : 'Saved') : 'View only');
     render();
   }, () => { clearTimeout(timer); setStatus('Could not load shared answers'); });
   if (!canWrite) { $('banner').hidden = false; $('banner').textContent = 'You have view-only access, so you can see answers but not add your own. Ask the owner for Contributor access.'; }
