@@ -50,7 +50,13 @@ export function maxCorneringSpeed(v, radius) {
 
 const isCurve = (s) => s.sType === 'CURVE_LEFT' || s.sType === 'CURVE_RIGHT';
 
+// A section may carry `capAfter` (km/h): a speed cap at its asset-side end, e.g. a gate or a
+// forced stop (0). After a cap, acceleration resumes from the capped speed.
 export function traverseSection(v, state, section) {
+  return applyCap(moveThrough(v, state, section), section.capAfter);
+}
+
+function moveThrough(v, state, section) {
   if (section.sLength === 0) return state;
   const base = state.accDistance != null ? state.accDistance : distanceForSpeed(v, state.speed);
   const newDistance = base + section.sLength;
@@ -62,15 +68,29 @@ export function traverseSection(v, state, section) {
   return { speed: straightSpeed, accDistance: newDistance };
 }
 
+function applyCap(state, cap) {
+  if (!Number.isFinite(cap) || state.speed <= cap) return state;
+  return { speed: Math.max(0, cap), accDistance: null };
+}
+
+// How a vehicle passes the start point of the route:
+//   'STANDING'  from rest (speed 0)
+//   'ROLLING'   already at its top speed (the class's terminal speed), i.e. an unlimited run-up
+//   a number    at that entry speed in km/h, capped at the class's top speed
 export function startingSpeeds(routeStart, vehicles = VEHICLES) {
   const m = new Map();
   for (const v of vehicles) {
-    m.set(v.id, routeStart === 'ROLLING'
-      ? { speed: v.plateau, accDistance: Infinity }
-      : { speed: 0, accDistance: null });
+    if (routeStart === 'ROLLING') m.set(v.id, { speed: v.plateau, accDistance: Infinity });
+    else if (typeof routeStart === 'number' && routeStart > 0) {
+      const speed = Math.min(routeStart, v.plateau);
+      m.set(v.id, { speed, accDistance: speed >= v.plateau ? Infinity : null });
+    } else m.set(v.id, { speed: 0, accDistance: null });
   }
   return m;
 }
+
+// The start argument for the engine from a stored setting.
+export const startArg = (start, entryKph) => (start === 'ENTRY' ? (Number.isFinite(entryKph) && entryKph > 0 ? entryKph : 0) : start);
 
 // sections[0] is nearest the asset. Result[i] = state at asset-side end of sections[i];
 // result[sections.length] = the start of the route.
@@ -100,7 +120,10 @@ export function subdivide(sections, budget = 250, minLength = 2) {
   sections.forEach((s, parentIndex) => {
     const n = Math.max(1, Math.ceil(s.sLength / target));
     for (let k = 0; k < n; k++) {
-      out.push({ ...s, sLength: s.sLength / n, parentIndex, major: k === 0 });
+      const piece = { ...s, sLength: s.sLength / n, parentIndex, major: k === 0 };
+      // A cap sits at the asset-side end of the section, i.e. only on its k === 0 piece.
+      if (k !== 0) delete piece.capAfter;
+      out.push(piece);
     }
   });
   return out;
@@ -123,5 +146,12 @@ export function validateSection(s) {
   if (isCurve(s) && !(Number.isFinite(s.radius) && s.radius > 0 && s.radius <= MAX_RADIUS)) {
     errors.radius = `Radius must be > 0 and ≤ ${MAX_RADIUS}`;
   }
+  if (s.capAfter != null && !(Number.isFinite(s.capAfter) && s.capAfter >= 0)) errors.capAfter = 'Speed cap must be a number ≥ 0';
   return errors;
 }
+
+// Nominal mass per class (kg), used for impact energy (½·m·v²).
+export const MASS_KG = { CAR: 1500, PICKUP: 2500, FLATBED: 3500, SEVENTRIGID: 7500, EIGHTEENTRIGID: 18000, THIRTYTRIGID: 30000 };
+// Impact test speeds (km/h) used by ISO 22343 / IWA 14-1 / PAS 68 test series.
+export const TEST_SPEEDS_KPH = [16, 32, 48, 64, 80, 96, 112];
+export const nextTestSpeed = (kph) => TEST_SPEEDS_KPH.find((t) => t >= kph - 1e-9) ?? null;

@@ -1,0 +1,294 @@
+<title>VDA Map Spec Questions</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap">
+<style>
+/* Layout: one reading column; summary strip, then question cards grouped by section, sticky progress bar. */
+:root {
+  --bg: #f3f5f7; --surface: #ffffff; --fg: #17202a; --muted: #5b6876; --line: #d8dee5;
+  --accent: #b4530d; --accent-soft: #fbeadb; --ok: #1f7a4a; --ok-soft: #e1f2e8;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12171d; --surface: #1a2129; --fg: #e6ebf0; --muted: #98a5b3; --line: #2c3742;
+  --accent: #f0904a; --accent-soft: #3a2616; --ok: #5cc98d; --ok-soft: #173326; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12171d; --surface: #1a2129; --fg: #e6ebf0; --muted: #98a5b3; --line: #2c3742;
+  --accent: #f0904a; --accent-soft: #3a2616; --ok: #5cc98d; --ok-soft: #173326; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 15px/1.55 var(--body); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap { max-width: 860px; margin: 0 auto; padding-block: 0 64px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: 30px; line-height: 1.15; letter-spacing: -0.01em; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 500; }
+p { margin: 0; max-width: 65ch; }
+.lead { color: var(--muted); }
+header.top { display: grid; gap: 12px; padding-block: 32px 20px; }
+.ticks { display: flex; gap: 0; font: 11px var(--mono); color: var(--muted); border-top: 2px solid var(--fg); width: fit-content; max-width: 100%; overflow-x: auto; }
+.ticks span { padding: 4px 10px 0 0; border-left: 1px solid var(--line); padding-left: 4px; }
+.ticks span:first-child { border-left: 0; padding-left: 0; }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line);
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.bar-in { max-width: 860px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; }
+.meter { flex: 1 1 160px; height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+.status { font: 12px var(--mono); color: var(--muted); }
+button { font: inherit; color: inherit; cursor: pointer; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 6px 12px; font-size: 13px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--surface); font-weight: 600; }
+.btn:focus-visible, .opt:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+details.spec { margin-block: 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+details.spec summary { padding: 12px 16px; cursor: pointer; font-weight: 600; }
+.spec-body { padding: 0 16px 16px; display: grid; gap: 10px; }
+.spec-body ul { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.formula { font: 14px var(--mono); background: var(--bg); border-radius: 6px; padding: 8px 12px; overflow-x: auto; }
+section.group { display: grid; gap: 12px; margin-top: 32px; }
+.q { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; display: grid; gap: 12px; min-width: 0; }
+.q.done { border-left: 3px solid var(--ok); }
+.q-head { display: flex; gap: 12px; align-items: baseline; }
+.qid { font: 500 13px var(--mono); color: var(--accent); flex: none; }
+.q-text { font-weight: 500; }
+.q-why { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.opts { display: grid; gap: 8px; }
+.opt { text-align: left; border: 1px solid var(--line); background: var(--bg); border-radius: 6px; padding: 8px 12px;
+  display: grid; grid-template-columns: 18px 1fr auto; gap: 10px; align-items: start; }
+.opt .dot { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); margin-top: 3px; }
+.opt[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.opt[aria-pressed="true"] .dot { border-color: var(--accent); background: radial-gradient(var(--accent) 45%, transparent 50%); }
+.opt .tag { font: 11px var(--mono); color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.opt .votes { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+textarea { width: 100%; box-sizing: border-box; min-height: 38px; resize: vertical; font: 14px var(--body); color: var(--fg);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.others { font-size: 13px; color: var(--muted); display: grid; gap: 2px; }
+.others b { color: var(--fg); font-weight: 500; }
+.note-banner { border: 1px solid var(--line); background: var(--surface); border-radius: 8px; padding: 12px 16px; font-size: 14px; }
+@media (max-width: 520px) { h1 { font-size: 24px; } .opt { grid-template-columns: 18px 1fr; } .opt .votes { grid-column: 2; } }
+@media (prefers-reduced-motion: reduce) { .meter i { transition: none; } }
+</style>
+
+<div class="bar"><div class="bar-in">
+  <strong id="count">0 of 27 answered</strong>
+  <div class="meter" aria-hidden="true"><i id="meter"></i></div>
+  <span class="status" id="status" aria-live="polite">Connecting…</span>
+  <button class="btn" id="all-defaults" type="button">Accept defaults for unanswered</button>
+</div></div>
+
+<div class="wrap">
+  <header class="top">
+    <div class="ticks" aria-label="IWA 14-1 test speeds in km/h"><span>16</span><span>32</span><span>48</span><span>64</span><span>80</span><span>96</span><span>112 km/h</span></div>
+    <h1>Map-based attack vectors: open questions</h1>
+    <p class="lead">These 27 questions decide how the VDA tool gets maps, scaled site plans and drawn attack vectors. Each one has a proposed default. Pick the default, an alternative, or write your own answer. Your answers save as you go, and Claude reads them back to update the spec.</p>
+  </header>
+
+  <div class="note-banner" id="banner" hidden></div>
+
+  <details class="spec">
+    <summary>What the spec proposes (2-minute read)</summary>
+    <div class="spec-body">
+      <p>The assessor loads a site plan or a map, sets its scale with two clicks and a known distance, marks the asset and the line of protection, then draws approach routes. The tool turns each drawn route into the straights and curves the current calculator already uses. The maths is unchanged and every result can still be checked by hand.</p>
+      <ul>
+        <li><b>Corners are rounded automatically.</b> Each clicked vertex becomes an arc; tangent length = r·tan(θ/2), arc length = r·θ.</li>
+        <li><b>The fastest line, not the centreline.</b> Drivers cut corners. For a bend of deflection θ, traversable width w and inner kerb radius rᵢ:</li>
+      </ul>
+      <div class="formula">R = rᵢ + w / (1 − cos(θ/2))</div>
+      <p>On a 7 m road at a sharp 90° junction the centreline gives a car about 23 km/h. The corner-cutting line gives about 47 km/h.</p>
+      <ul>
+        <li><b>New results at the line of protection:</b> impact angle, impact energy, the bend that limits speed, and the required rating (e.g. V/7200[N2]/48/90).</li>
+        <li><b>Mitigation:</b> barrier lines with a gap check, gates and forced stops, and as-is vs option comparisons.</li>
+        <li><b>Phases:</b> P0 foundations · P1 offline plan upload (the core ask) · P2 live maps · P3 automation · P4 auto-generated routes.</li>
+      </ul>
+      <p class="lead">Full spec: <code>docs/spec-map-attack-vectors.md</code> in the VDA-Tool repository.</p>
+    </div>
+  </details>
+
+  <div id="groups"></div>
+</div>
+
+<script>
+const GROUPS = [
+ { title: 'A · Scope and users', qs: [
+  ['Q1', 'Who is the primary user?', 'Sets how much the tool explains versus assumes.',
+    ['Specialist assessors; clients only view reports', 'External consultants as well as in-house', 'Clients self-serve with guidance']],
+  ['Q2', 'Can the app take a map library dependency?', 'Today it has no dependencies at all.',
+    ['Leaflet, stored locally (no CDN)', 'MapLibre, for vector and rotated maps', 'Stay dependency-free; hand-built pan and zoom']],
+  ['Q3', 'Can site locations or imagery ever go to third-party map or address-search services?', 'Plans of sensitive sites often carry protective markings. This decides whether offline-first is a hard rule.',
+    ['Plan mode is fully offline; online maps need a per-project opt-in', 'Never: offline only, no online maps', 'Yes, online maps are fine by default']],
+  ['Q4', 'Which country and grid come first?', 'Coordinates are always stored in metres; this sets the national grid used for export.',
+    ['UK first (EPSG:27700), WGS84 always stored', 'International from the start', 'No national grid needed']],
+ ]},
+ { title: 'B · Base layers and scale', qs: [
+  ['Q5', 'Which plan formats matter most?', '',
+    ['PDF and PNG/JPG in P1, GeoTIFF in P2', 'Photos of paper plans too', 'Drone orthomosaics / GeoTIFF from P1']],
+  ['Q6', 'Is CAD import (DXF/DWG) needed?', 'DXF is feasible in the browser. DWG is not, realistically.',
+    ['DXF in P3 if asked for; export PDFs meanwhile', 'DXF needed in P1', 'Not needed']],
+  ['Q7', 'Are plan scales usually reliable?', '"NOT TO SCALE" stamps and rescaled PDFs are common.',
+    ['Assume unreliable: always calibrate by two points', 'Usually reliable: trust a stated 1:N scale', 'Mixed: offer both, recommend calibration']],
+  ['Q8', 'What calibration check error is acceptable?', 'The check is a second known measurement on the plan.',
+    ['Warn above 2 %, block report above 5 % unless overridden with a reason', 'Warn above 1 %, never block', 'Warn above 5 %, never block']],
+  ['Q9', 'Show calibration and drawing error as a ± speed band?', '',
+    ['Yes, from P3', 'Yes, from P1', 'No']],
+ ]},
+ { title: 'C · Drawing and geometry', qs: [
+  ['Q10', 'What radius should a drawn bend use by default?', 'Larger radius means higher cornering speed, so the largest radius that fits is the worst case.',
+    ['Largest that fits (worst case); assessor can reduce with a note', 'As drawn by the assessor', 'Fit inside the drawn road corridor (needs P3)']],
+  ['Q11', 'How common are S-bends, chicanes and roundabouts on your sites?', 'Decides whether simple per-bend maths is enough.',
+    ['Uncommon: per-bend optimisation first, full racing line later', 'Common: need the full racing-line solver early', 'Not sure']],
+  ['Q12', 'Should the tool exclude vehicle classes that cannot physically make a turn or fit a gap?', 'For example, a 30 t rigid through a 2.4 m gap or a tight turn.',
+    ['Manual exclusion with a reason in P1, automatic check in P3', 'Always manual', 'Automatic from P1']],
+  ['Q13', 'Can vehicles be assumed to mount kerbs and cross footways and verges?', '',
+    ['Yes for kerbs up to 150 mm, footways, verges; not steps, water, buildings; configurable', 'Roads only unless the assessor marks other surfaces', 'Everything is traversable except buildings']],
+  ['Q14', 'Which existing features stop a vehicle?', 'Trees, walls and street furniture vary widely.',
+    ['Only rated products and buildings; the assessor classifies everything else', 'Also trees over a set trunk size and walls', 'Anything the assessor marks']],
+ ]},
+ { title: 'D · Standards and outputs', qs: [
+  ['Q15', 'Which standard should required ratings use?', 'The six current classes must also be mapped to the test vehicles (e.g. the tool’s 7.5 t vs IWA’s 7.2 t N2).',
+    ['IWA 14-1 primary, PAS 68 shown alongside', 'PAS 68 only', 'IWA 14-1, PAS 68 and ASTM F2656']],
+  ['Q16', 'Does impact angle change the required rating?', '',
+    ['Report only; round up to the tested angle', 'Yes, reduce the requirement for shallow angles', 'Not needed']],
+  ['Q17', 'What maximum gap between barrier elements should the gap checker use?', '',
+    ['1.2 m, configurable', 'Set per project', 'No gap check']],
+  ['Q18', 'Is gradient modelling needed?', 'The vehicle curves assume a level road, so this needs new vehicle data, not just UI.',
+    ['Out of scope until P4; flag steep gradients as outside the model', 'Needed in P1', 'Never']],
+  ['Q19', 'Will a server ever be needed?', 'For shared projects, multi-user review, central vehicle-data updates.',
+    ['Local only; share project files through existing secure channels', 'Yes, eventually', 'Yes, from the start']],
+ ]},
+ { title: 'E · Governance, audit and reporting', qs: [
+  ['Q20', 'Do reports need protective markings on every page?', 'For example OFFICIAL-SENSITIVE plus a handling statement.',
+    ['Yes, a free-text marking on every page', 'Fixed set of markings to choose from', 'No']],
+  ['Q21', 'Is a formal sign-off workflow needed?', 'Assessor, checker, approver, with locked versions.',
+    ['"Lock and version" in P1, full workflow in P4', 'Full workflow in P1', 'No']],
+  ['Q22', 'Which export formats do recipients need?', '',
+    ['PDF + CSV in P1, GeoJSON in P2, DXF in P3', 'Word as well as PDF', 'PDF only']],
+  ['Q23', 'Is on-site tablet use a real use case?', 'Walking the site and marking start points with GPS.',
+    ['Nice to have; desktop first', 'Yes, important', 'No']],
+ ]},
+ { title: 'F · Automation appetite', qs: [
+  ['Q24', 'How far should automation go?', '',
+    ['Suggest routes only; a human accepts every one', 'Produce a full assessment that a reviewer checks', 'No automatic route generation']],
+  ['Q25', 'For auto-generation, what is the study area?', '440 m is where the acceleration curves reach terminal speed.',
+    ['Assessor-drawn, with a 440 m default ring', 'Fixed radius around the asset', 'The site boundary']],
+  ['Q26', 'Should OSM road and building data seed surfaces and obstacles automatically?', 'Raises the same data-egress question as Q3.',
+    ['Optional in P2/P3, behind the same opt-in as Q3', 'Yes, by default', 'No']],
+  ['Q27', 'Can you share past assessments to use as test cases?', 'Plan + hand-measured routes + results.',
+    ['Yes, 2–3 anonymised sites', 'Yes, but only synthetic examples', 'No']],
+ ]},
+];
+const ALL = GROUPS.flatMap((g) => g.qs.map((q) => q[0]));
+const $ = (id) => document.getElementById(id);
+
+let mine = {};          // { Q1: {pick: 0|1|2|'other', note: ''} }
+let everyone = [];      // [{id, answers}]
+let names = {};
+let myId = null, ref = null, saving = false, dirty = false, canWrite = false;
+try { mine = JSON.parse(localStorage.getItem('vda-q-draft') || '{}'); } catch (e) { /* ignore */ }
+
+function render() {
+  const root = $('groups');
+  if (!root.childElementCount) {
+    for (const g of GROUPS) {
+      const s = document.createElement('section'); s.className = 'group';
+      const h = document.createElement('h2'); h.textContent = g.title; s.append(h);
+      for (const [id, text, why, opts] of g.qs) {
+        const c = document.createElement('article'); c.className = 'q'; c.id = 'card-' + id;
+        c.innerHTML = `<div class="q-head"><span class="qid">${id}</span><div><div class="q-text"></div><div class="q-why"></div></div></div><div class="opts" role="group"></div>
+          <textarea id="note-${id}" rows="1" placeholder="Your own answer or a comment (optional)"></textarea><div class="others"></div>`;
+        c.querySelector('.q-text').textContent = text;
+        const w = c.querySelector('.q-why'); w.textContent = why; w.hidden = !why;
+        c.querySelector('.opts').setAttribute('aria-label', id + ' options');
+        opts.forEach((o, k) => {
+          const b = document.createElement('button'); b.type = 'button'; b.className = 'opt'; b.dataset.q = id; b.dataset.k = k; b.id = `opt-${id}-${k}`;
+          b.innerHTML = `<span class="dot"></span><span><span class="tag">${k === 0 ? 'Proposed default' : 'Alternative'}</span><br><span class="lbl"></span></span><span class="votes"></span>`;
+          b.querySelector('.lbl').textContent = o;
+          c.querySelector('.opts').append(b);
+        });
+        s.append(c);
+      }
+      root.append(s);
+    }
+  }
+  for (const id of ALL) {
+    const c = $('card-' + id), a = mine[id];
+    c.querySelectorAll('.opt').forEach((b) => {
+      b.setAttribute('aria-pressed', a && String(a.pick) === b.dataset.k ? 'true' : 'false');
+      const n = everyone.filter((p) => p.answers?.[id] && String(p.answers[id].pick) === b.dataset.k).length;
+      b.querySelector('.votes').textContent = n ? `${n} ${n === 1 ? 'person' : 'people'}` : '';
+    });
+    const ta = $('note-' + id);
+    if (document.activeElement !== ta) ta.value = a?.note || '';
+    c.classList.toggle('done', !!(a && (a.pick !== undefined || a.note)));
+    const others = c.querySelector('.others'); others.textContent = '';
+    for (const p of everyone) {
+      if (p.id === myId) continue;
+      const pa = p.answers?.[id]; if (!pa || !pa.note) continue;
+      const line = document.createElement('div');
+      const who = document.createElement('b'); who.textContent = (names[p.id]?.name || 'Someone') + ': ';
+      line.append(who, document.createTextNode(String(pa.note).slice(0, 600)));
+      others.append(line);
+    }
+  }
+  const n = ALL.filter((id) => mine[id] && (mine[id].pick !== undefined || mine[id].note)).length;
+  $('count').textContent = `${n} of ${ALL.length} answered`;
+  $('meter').style.width = (n / ALL.length * 100) + '%';
+}
+
+function setStatus(t) { $('status').textContent = t; }
+
+async function persist() {
+  try { localStorage.setItem('vda-q-draft', JSON.stringify(mine)); } catch (e) { /* ignore */ }
+  if (!ref || !canWrite) return;
+  if (saving) { dirty = true; return; }
+  saving = true; setStatus('Saving…');
+  try { await ref.set({ answers: mine, updatedAt: new Date().toISOString() }); setStatus('Saved'); }
+  catch (e) { setStatus('Not saved: ' + (e?.code === 'not_granted' || e?.code === 'forbidden' ? 'you have view-only access' : 'try again')); }
+  saving = false;
+  if (dirty) { dirty = false; persist(); }
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('.opt');
+  if (b) {
+    const id = b.dataset.q, k = +b.dataset.k;
+    const cur = mine[id] || {};
+    if (cur.pick === k) delete cur.pick; else cur.pick = k;
+    mine[id] = cur; render(); persist(); return;
+  }
+});
+let t;
+document.addEventListener('input', (e) => {
+  if (!e.target.id?.startsWith('note-')) return;
+  const id = e.target.id.slice(5);
+  mine[id] = { ...(mine[id] || {}), note: e.target.value.slice(0, 2000) };
+  clearTimeout(t); t = setTimeout(() => { render(); persist(); }, 700);
+});
+$('all-defaults').addEventListener('click', () => {
+  for (const id of ALL) if (!mine[id] || mine[id].pick === undefined) mine[id] = { ...(mine[id] || {}), pick: 0 };
+  render(); persist();
+});
+
+render();
+
+(async () => {
+  const timer = setTimeout(() => setStatus('Saving on this device only'), 10000);
+  const db = window.claude ? await window.claude.use('db') : null;
+  const user = window.claude ? await window.claude.use('user') : null;
+  if (!db || !user) { clearTimeout(timer); setStatus('Saving on this device only'); $('banner').hidden = false;
+    $('banner').textContent = 'Shared answers are not available in this view, so your picks are kept in this browser only. Open the page signed in to claude.ai to share them.'; return; }
+  myId = await user.id();
+  canWrite = (await user.can('data.write')) !== false && !!myId;
+  if (myId) ref = db.collection('answers').doc(myId);
+  db.collection('answers').onSnapshot(async (snap) => {
+    clearTimeout(timer);
+    everyone = snap.docs.filter((d) => d.exists).map((d) => ({ id: d.id, answers: d.data()?.answers || {} }));
+    const me = everyone.find((p) => p.id === myId);
+    if (me && !saving && !dirty) mine = JSON.parse(JSON.stringify(me.answers));
+    try { names = await user.profiles(everyone.map((p) => p.id)); } catch (e) { names = {}; }
+    const others = everyone.filter((p) => p.id !== myId).length;
+    setStatus(canWrite ? (others ? `Saved · ${others} other ${others === 1 ? 'person has' : 'people have'} answered` : 'Saved') : 'View only');
+    render();
+  }, () => { clearTimeout(timer); setStatus('Could not load shared answers'); });
+  if (!canWrite) { $('banner').hidden = false; $('banner').textContent = 'You have view-only access, so you can see answers but not add your own. Ask the owner for Contributor access.'; }
+  else if (ref && Object.keys(mine).length) { const s = await ref.get().catch(() => null); if (s && !s.exists) persist(); }
+})();
+</script>

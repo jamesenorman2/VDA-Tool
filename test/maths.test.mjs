@@ -87,3 +87,39 @@ test('sketch is drawn in travel direction: start of route first, driver-left tur
   assert.equal(s.segments[1].index, 0);
   close(Math.hypot(s.assetPoint.x - s.startPoint.x, s.assetPoint.y - s.startPoint.y), Math.hypot(20, 10), 0.01);
 });
+
+test('speed cap of 0 acts as a standing start from that point', () => {
+  const after = [{ sType: 'STRAIGHT', sLength: 60 }, { sType: 'CURVE_LEFT', sLength: 15, radius: 30 }];
+  const capped = [...after, { sType: 'STRAIGHT', sLength: 200, capAfter: 0 }];
+  const a = buildRouteSpeeds(capped, 'ROLLING'), b = buildRouteSpeeds(after, 'STANDING');
+  for (const v of VEHICLES) assert.equal(a[0].exitSpeeds.get(v.id).speed, b[0].exitSpeeds.get(v.id).speed);
+  assert.equal(a[2].exitSpeeds.get('CAR').speed, 0);
+});
+
+test('a speed cap above the current speed changes nothing', () => {
+  const base = [{ sType: 'STRAIGHT', sLength: 30 }, { sType: 'STRAIGHT', sLength: 30 }];
+  const capped = [base[0], { ...base[1], capAfter: 500 }];
+  for (const start of ['ROLLING', 'STANDING']) {
+    const a = buildRouteSpeeds(base, start), b = buildRouteSpeeds(capped, start);
+    for (const v of VEHICLES) assert.deepEqual(b[0].exitSpeeds.get(v.id), a[0].exitSpeeds.get(v.id));
+  }
+});
+
+test('a cap applies once when the chart subdivides a section', () => {
+  const secs = [{ sType: 'STRAIGHT', sLength: 100 }, { sType: 'STRAIGHT', sLength: 300, capAfter: 20 }];
+  const series = chartSeries(secs, 'ROLLING');
+  const direct = buildRouteSpeeds(secs, 'ROLLING');
+  for (const v of VEHICLES) assert.ok(Math.abs(series[0].speeds[v.id] - direct[0].exitSpeeds.get(v.id).speed) < 0.5);
+  assert.ok(Math.max(...series.filter((r) => r.distance > 100.5).map((r) => r.speeds.CAR)) > 20);
+});
+
+test('entry speed start sits between standing and rolling and is capped at top speed', () => {
+  const secs = [{ sType: 'STRAIGHT', sLength: 60 }];
+  const at = (start) => buildRouteSpeeds(secs, start)[0].exitSpeeds.get('CAR').speed;
+  const standing = at('STANDING'), rolling = at('ROLLING'), entry = at(48);
+  assert.ok(standing < entry && entry < rolling, `${standing} ${entry} ${rolling}`);
+  // Entering at 48 km/h equals a standing start with the run-up that reaches 48 km/h.
+  close(entry, speedAtDistance(V.CAR, distanceForSpeed(V.CAR, 48) + 60), 1e-9);
+  assert.equal(at(500), rolling);
+  assert.equal(at(0), standing);
+});

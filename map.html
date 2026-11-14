@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VDA Tool – Map assessment</title>
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('vda-theme') || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
+<link rel="stylesheet" href="vendor/maplibre-gl-4.7.1/maplibre-gl.css">
+<link rel="stylesheet" href="map.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <header>
+      <h1>Map assessment <span class="version" id="version"></span></h1>
+      <nav><a href="index.html">Route calculator →</a><button id="theme" type="button"></button></nav>
+    </header>
+
+    <details id="sec-map" open>
+      <summary>Map</summary>
+      <div class="body">
+        <label>Basemap
+          <select id="basemap">
+            <option value="streets">Streets</option>
+            <option value="satellite">Satellite</option>
+            <option value="none">None (plan only)</option>
+          </select></label>
+        <form id="search-form" class="inline">
+          <input id="search" placeholder="Address, postcode or lat, lng" aria-label="Search for a place">
+          <button>Go</button>
+        </form>
+        <p class="hint" id="search-status"></p>
+        <details class="sub" id="key-box">
+          <summary>MapTiler key <span id="key-state" class="pill"></span></summary>
+          <p class="hint">Free key from maptiler.com (non-commercial use). It is stored in this browser only. Restrict it to this site's address in the MapTiler dashboard. Without a key, streets come from OpenStreetMap and satellite and address search are off.</p>
+          <form id="key-form" class="inline">
+            <input id="key" type="password" autocomplete="off" placeholder="Paste key" aria-label="MapTiler key">
+            <button>Save</button>
+          </form>
+        </details>
+        <p class="warn" id="egress-warn" hidden>This project is marked above OFFICIAL. Map tiles and address search send this site's location to third parties.</p>
+      </div>
+    </details>
+
+    <details id="sec-plan" open>
+      <summary>Site plan</summary>
+      <div class="body">
+        <label class="file">Upload plan (PNG or JPG) <input id="plan-file" type="file" accept="image/png,image/jpeg"></label>
+        <div id="plan-tools" hidden>
+          <label>Opacity <input id="plan-opacity" type="range" min="0" max="1" step="0.05" value="0.7"></label>
+          <div class="btnrow">
+            <button id="plan-scale">Set scale</button>
+            <button id="plan-check">Check scale</button>
+            <button id="plan-align">Align to map</button>
+            <button id="plan-remove" class="quiet">Remove</button>
+          </div>
+          <dl class="facts" id="plan-facts"></dl>
+        </div>
+        <div id="pick-box" class="pickbox" hidden>
+          <p id="pick-msg"></p>
+          <form id="pick-form" class="inline" hidden>
+            <input id="pick-dist" type="number" min="0" step="any" placeholder="Distance (m)" aria-label="Real distance in metres">
+            <button>Apply</button>
+          </form>
+          <button id="pick-cancel" class="quiet">Cancel</button>
+        </div>
+      </div>
+    </details>
+
+    <details id="sec-draw" open>
+      <summary>Draw</summary>
+      <div class="body">
+        <div class="btnrow">
+          <button data-draw="asset">Asset</button>
+          <button data-draw="lop">Line of protection</button>
+          <button data-draw="vector" class="primary">New vector</button>
+        </div>
+        <p class="hint" id="draw-hint">Click to add points. Enter or double-click to finish, Backspace removes the last point, Esc cancels. Drag a point to move it.</p>
+      </div>
+    </details>
+
+    <details id="sec-vectors" open>
+      <summary>Vectors <span id="vec-count" class="pill"></span></summary>
+      <div class="body">
+        <label>Speeds in
+          <select id="unit"><option value="KPH">km/h</option><option value="MPH">mph</option></select></label>
+        <ol id="vec-list"></ol>
+        <button id="copy-all" type="button">Copy all vectors for report</button>
+        <div id="vec-detail"></div>
+      </div>
+    </details>
+
+    <details id="sec-project">
+      <summary>Project</summary>
+      <div class="body">
+        <label>Title <input id="title" maxlength="80"></label>
+        <label>Marking
+          <select id="marking">
+            <option value="">None</option>
+            <option>OFFICIAL</option>
+            <option>OFFICIAL-SENSITIVE</option>
+            <option value="CUSTOM">Client-specific…</option>
+          </select></label>
+        <input id="marking-custom" placeholder="Client marking" hidden aria-label="Client-specific marking">
+        <div class="btnrow">
+          <button id="proj-save">Download project</button>
+          <label class="file buttonlike">Open project <input id="proj-open" type="file" accept=".json,application/json"></label>
+          <button id="proj-clear" class="quiet">New project</button>
+        </div>
+        <p class="hint" id="proj-status"></p>
+      </div>
+    </details>
+  </aside>
+  <div id="map" aria-label="Map"></div>
+  <div id="legend" aria-label="Impact speed colours"></div>
+</div>
+<script src="vendor/maplibre-gl-4.7.1/maplibre-gl.js"></script>
+<script type="module" src="src/mapapp.js"></script>
+</body>
+</html>
