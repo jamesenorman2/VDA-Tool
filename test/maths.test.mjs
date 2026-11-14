@@ -112,3 +112,14 @@ test('a cap applies once when the chart subdivides a section', () => {
   for (const v of VEHICLES) assert.ok(Math.abs(series[0].speeds[v.id] - direct[0].exitSpeeds.get(v.id).speed) < 0.5);
   assert.ok(Math.max(...series.filter((r) => r.distance > 100.5).map((r) => r.speeds.CAR)) > 20);
 });
+
+test('entry speed start sits between standing and rolling and is capped at top speed', () => {
+  const secs = [{ sType: 'STRAIGHT', sLength: 60 }];
+  const at = (start) => buildRouteSpeeds(secs, start)[0].exitSpeeds.get('CAR').speed;
+  const standing = at('STANDING'), rolling = at('ROLLING'), entry = at(48);
+  assert.ok(standing < entry && entry < rolling, `${standing} ${entry} ${rolling}`);
+  // Entering at 48 km/h equals a standing start with the run-up that reaches 48 km/h.
+  close(entry, speedAtDistance(V.CAR, distanceForSpeed(V.CAR, 48) + 60), 1e-9);
+  assert.equal(at(500), rolling);
+  assert.equal(at(0), standing);
+});

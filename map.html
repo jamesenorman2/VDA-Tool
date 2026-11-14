@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VDA Tool – Map assessment</title>
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('vda-theme') || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
 <link rel="stylesheet" href="vendor/maplibre-gl-4.7.1/maplibre-gl.css">
 <link rel="stylesheet" href="map.css">
 </head>
@@ -11,8 +12,8 @@
 <div id="app">
   <aside id="side">
     <header>
-      <h1>Map assessment</h1>
-      <a href="index.html">Route calculator →</a>
+      <h1>Map assessment <span class="version" id="version"></span></h1>
+      <nav><a href="index.html">Route calculator →</a><button id="theme" type="button"></button></nav>
     </header>
 
     <details id="sec-map" open>
@@ -84,6 +85,7 @@
         <label>Speeds in
           <select id="unit"><option value="KPH">km/h</option><option value="MPH">mph</option></select></label>
         <ol id="vec-list"></ol>
+        <button id="copy-all" type="button">Copy all vectors for report</button>
         <div id="vec-detail"></div>
       </div>
     </details>

@@ -24,6 +24,6 @@ npm test       # unit tests for the maths and sketch geometry
 - `vendor/maplibre-gl-4.7.1/` – vendored MapLibre GL JS (BSD-3-Clause)
 - `src/app.js` – UI: settings, data entry (validation, keyboard shortcuts), outputs, print view
 
-Sections are stored nearest-asset first; the "Entry order" setting (default: start of route → asset) controls how they are shown, numbered and added. State is kept in `localStorage`.
+Sections are stored nearest-asset first and always shown and entered from the start of the route to the asset. State is kept in `localStorage`. Dark mode is on by default (toggle in the header); every results table, chart and sketch has a copy-for-report button. Standing rules for changes are in `CLAUDE.md`.
 
 Planned map-based workflow: see `docs/spec-map-attack-vectors.md` and `docs/plan-p0-p1.md`.

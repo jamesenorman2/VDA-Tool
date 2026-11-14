@@ -73,15 +73,24 @@ function applyCap(state, cap) {
   return { speed: Math.max(0, cap), accDistance: null };
 }
 
+// How a vehicle passes the start point of the route:
+//   'STANDING'  from rest (speed 0)
+//   'ROLLING'   already at its top speed (the class's terminal speed), i.e. an unlimited run-up
+//   a number    at that entry speed in km/h, capped at the class's top speed
 export function startingSpeeds(routeStart, vehicles = VEHICLES) {
   const m = new Map();
   for (const v of vehicles) {
-    m.set(v.id, routeStart === 'ROLLING'
-      ? { speed: v.plateau, accDistance: Infinity }
-      : { speed: 0, accDistance: null });
+    if (routeStart === 'ROLLING') m.set(v.id, { speed: v.plateau, accDistance: Infinity });
+    else if (typeof routeStart === 'number' && routeStart > 0) {
+      const speed = Math.min(routeStart, v.plateau);
+      m.set(v.id, { speed, accDistance: speed >= v.plateau ? Infinity : null });
+    } else m.set(v.id, { speed: 0, accDistance: null });
   }
   return m;
 }
+
+// The start argument for the engine from a stored setting.
+export const startArg = (start, entryKph) => (start === 'ENTRY' ? (Number.isFinite(entryKph) && entryKph > 0 ? entryKph : 0) : start);
 
 // sections[0] is nearest the asset. Result[i] = state at asset-side end of sections[i];
 // result[sections.length] = the start of the route.

@@ -4,24 +4,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VDA Tool – Vehicle Dynamics Assessment</title>
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('vda-theme') || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header class="d-print-none"><h1>Vehicle Dynamics Assessment</h1>
-<p>Maximum vehicle speeds along an approach route to an asset. <a href="map.html" style="color:#fff">Map assessment →</a></p></header>
-<header class="print-only"><h1 id="print-title"></h1><p id="print-summary"></p></header>
+<header class="d-print-none topbar">
+  <div><h1>Vehicle Dynamics Assessment <span class="version" id="version"></span></h1>
+  <p>Maximum vehicle speeds along an approach route to an asset.</p></div>
+  <nav><a href="map.html">Map assessment →</a><button id="theme" type="button"></button></nav></header>
+<header class="print-only"><h1 id="print-title"></h1><p id="print-summary"></p><p class="hint" id="print-version"></p></header>
 <main>
   <section class="panel d-print-none" id="settings">
     <h2>Settings</h2>
     <fieldset><legend>Speed unit</legend>
       <label><input type="radio" name="unit" value="KPH"> km/h</label>
       <label><input type="radio" name="unit" value="MPH"> mph</label></fieldset>
-    <fieldset><legend>Route start</legend>
-      <label><input type="radio" name="start" value="ROLLING"> Rolling (vehicles at maximum speed)</label>
-      <label><input type="radio" name="start" value="STANDING"> Standing (vehicles stationary)</label></fieldset>
-    <fieldset><legend>Entry order</legend>
-      <label><input type="radio" name="order" value="FROM_START"> Start of route → asset</label>
-      <label><input type="radio" name="order" value="FROM_ASSET"> Asset → start of route</label></fieldset>
+    <fieldset class="start"><legend>How vehicles pass the start of the route</legend>
+      <label><input type="radio" name="start" value="STANDING"> <b>Standing start</b> – from rest. Put the start where a vehicle can actually be stationary: a parking bay, loading area, queue, stop line or gate.</label>
+      <label><input type="radio" name="start" value="ENTRY"> <b>Entry speed</b> – already moving at
+        <input id="entry-speed" type="number" min="0" step="any" size="4" aria-label="Entry speed"> <span id="entry-unit">km/h</span>, e.g. the speed achievable on the road leading in.</label>
+      <label><input type="radio" name="start" value="ROLLING"> <b>Rolling start</b> – already at top speed, as if the run-up before the start were unlimited. The most conservative; use when the route continues beyond what you have entered.</label>
+      <p class="hint">Rather than guessing a speed, the most defensible approach is usually to extend the route back to where a vehicle could be stationary and use a standing start. The comparison under "Speed at the asset" shows all three.</p></fieldset>
     <label>Report title <input id="title" maxlength="55" size="40"></label>
     <button id="print">Print report</button>
   </section>
@@ -45,19 +48,21 @@
   </section>
 
 
-  <section class="panel" id="sketch-panel"><h2>Route sketch</h2>
+  <section class="panel" id="sketch-panel"><h2>Route sketch <button class="copy d-print-none" id="copy-sketch" type="button">Copy image</button></h2>
     <svg id="sketch" role="img" aria-label="Route sketch"></svg>
     <p id="caption" aria-live="polite">&nbsp;</p></section>
-  <section class="panel" id="summary-panel"><h2>Speed at the asset <span id="total" class="hint"></span></h2><div id="cards" class="cards"></div></section>
+  <section class="panel" id="summary-panel"><h2>Speed at the asset <span id="total" class="hint"></span> <button class="copy d-print-none" id="copy-summary" type="button">Copy for report</button></h2><div id="cards" class="cards"></div>
+    <details class="compare" open><summary>Compare start conditions</summary><div id="compare"></div></details></section>
 
-  <section class="panel" id="chart-panel"><h2>Speed against distance to asset</h2><div id="chart"></div></section>
-  <section class="panel" id="table-panel"><h2>Speeds <button id="export-results" class="d-print-none">Download results (CSV)</button></h2><div id="table"></div></section>
+  <section class="panel" id="chart-panel"><h2>Speed against distance to asset <button class="copy d-print-none" id="copy-chart" type="button">Copy image</button></h2><div id="chart"></div></section>
+  <section class="panel" id="table-panel"><h2>Speeds <button class="copy d-print-none" id="copy-table" type="button">Copy table</button> <button id="export-results" class="d-print-none">Download results (CSV)</button></h2><div id="table"></div></section>
   <section class="panel" id="notes"><h2>Assumptions and limitations</h2>
     <ul>
       <li>Estimates of <em>maximum achievable</em> speed on a flat, level, dry road; no gradient, camber, surface or tyre variation, and no driver error.</li>
       <li>Acceleration uses empirical power-law fits (speed = a·distance<sup>b</sup>) per vehicle class, capped at a terminal speed beyond 440 m. They are fitted curves, not first-principles models, and are only as good as their source data.</li>
       <li>Cornering is steady-state: v = √(μ·r·g), capped at a per-class slip speed. Braking into a curve is assumed to be instantaneous, and a vehicle is assumed able to hold the limit speed throughout the curve.</li>
       <li>The published fits are very slightly discontinuous where bands join (≤ 0.2 km/h) and speeds are rounded to whole numbers in the table.</li>
+      <li>Start conditions: a standing start begins from rest; an entry speed begins at that speed and accelerates on from it along the same curve; a rolling start begins at the class's top speed (its speed after a 440 m run-up), which is never exceeded.</li>
       <li>Results support, but do not replace, a competent specialist assessment.</li>
     </ul></section>
 </main>

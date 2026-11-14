@@ -1,7 +1,10 @@
 // Map assessment page: basemap, plan overlay with calibration, drawing of asset / line of
 // protection / vectors, and per-vector impact results from the existing engine.
 /* global maplibregl */
-import { VEHICLES, KPH_PER_MPH, MASS_KG, TEST_SPEEDS_KPH, nextTestSpeed, buildRouteSpeeds } from './maths.js';
+import { VEHICLES, KPH_PER_MPH, MASS_KG, TEST_SPEEDS_KPH, nextTestSpeed, buildRouteSpeeds, startArg } from './maths.js';
+import { VERSION } from './version.js';
+import { mountThemeToggle } from './theme.js';
+import { reportTable, copyRich, flash } from './copy.js';
 import { newProject, newVector, resolveVector, pathLength } from './model.js';
 import { makeFrame } from './frames.js';
 import { planToLocal, localToPlan, scaleFromTwoPoints, rescale, checkError, measureOnPlan, fitSimilarity } from './calibrate.js';
@@ -13,7 +16,7 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const uid = (p) => `${p}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 // Speed bands follow the impact test speeds (km/h).
-const BAND_COLOURS = ['#2a9d8f', '#8ab17d', '#e9c46a', '#f4a261', '#e76f51', '#d62828', '#9d0208', '#540b0e'];
+const BAND_COLOURS = ['#2a9d8f', '#8ab17d', '#e9c46a', '#f4a261', '#e76f51', '#e63946', '#c1121f', '#b5179e']; // readable on light and dark maps
 const bandColour = (kph) => { const i = TEST_SPEEDS_KPH.findIndex((t) => kph <= t); return BAND_COLOURS[i < 0 ? BAND_COLOURS.length - 1 : i]; };
 
 // ---------- state ----------
@@ -341,7 +344,7 @@ function compute(v) {
   const r = resolveVector(project, v);
   if (!project.lops.length) r.errors = ['Draw a line of protection for this vector to cross', ...r.errors];
   if (r.errors.length || !r.sections.length) return { ...r, speeds: null };
-  const rows = buildRouteSpeeds(r.sections, v.start);
+  const rows = buildRouteSpeeds(r.sections, startArg(v.start, v.entryKph));
   const speeds = Object.fromEntries(VEHICLES.map((c) => [c.id, rows[0].exitSpeeds.get(c.id).speed]));
   const worst = Math.max(...Object.values(speeds));
   return { ...r, speeds, worst, runUp: pathLength(r.crossing.points) };
@@ -424,7 +427,12 @@ function renderDetail() {
   const v = item, r = results.get(v.id);
   let html = `<h3>${esc(v.name)}</h3>
     <label>Name <input id="d-name" value="${esc(v.name)}" maxlength="40"></label>
-    <label>Start <select id="d-start"><option value="ROLLING"${v.start === 'ROLLING' ? ' selected' : ''}>Rolling (at maximum speed)</option><option value="STANDING"${v.start === 'STANDING' ? ' selected' : ''}>Standing (stationary)</option></select></label>`;
+    <label>How the vehicle passes the start point <select id="d-start">
+      <option value="STANDING"${v.start === 'STANDING' ? ' selected' : ''}>Standing start (from rest)</option>
+      <option value="ENTRY"${v.start === 'ENTRY' ? ' selected' : ''}>Entry speed (already moving)</option>
+      <option value="ROLLING"${v.start === 'ROLLING' ? ' selected' : ''}>Rolling start (already at top speed)</option></select></label>
+    ${v.start === 'ENTRY' ? `<div class="entry">Entry speed <input id="d-entry" type="number" min="0" step="any" value="${v.entryKph ? +conv(v.entryKph).toFixed(1) : ''}" aria-label="Entry speed"> ${unitName()}</div>` : ''}
+    <p class="hint">${v.start === 'STANDING' ? 'Start the vector where a vehicle can be stationary: a parking bay, loading area, queue, stop line or gate.' : v.start === 'ROLLING' ? 'Assumes an unlimited run-up before the start point. Most conservative; better to extend the vector back to a real stopping place and use a standing start.' : 'Use the speed a vehicle can reach on the road leading to the start point.'}</p>`;
   html += r.errors.map((m) => `<p class="err">${esc(m)}</p>`).join('');
   html += (r.warnings || []).map((m) => `<p class="wrn">${esc(m)}</p>`).join('');
   if (r.speeds) {
@@ -443,12 +451,17 @@ function renderDetail() {
       return `<div class="bend"><span>Point ${b.point + 1}: ${info}</span><input type="number" min="0" step="any" data-bend="${b.point}" placeholder="Largest fit" aria-label="Fixed radius at point ${b.point + 1} in metres" value="${opt?.mode === 'fixed' ? opt.radius : ''}"></div>`;
     }).join('') + '<p class="hint">Leave a radius blank for the largest that fits (worst case). Type a radius to fix it.</p>';
   }
-  html += `<div class="btnrow"><button id="d-calc">Open in route calculator</button><button id="d-del" class="quiet">Delete vector</button></div><p class="hint" id="d-calc-msg"></p>`;
+  html += `<div class="btnrow"><button id="d-copy">Copy results for report</button><button id="d-calc">Open in route calculator</button><button id="d-del" class="quiet">Delete vector</button></div><p class="hint" id="d-calc-msg"></p>`;
   const focusId = document.activeElement?.id || document.activeElement?.dataset?.bend;
   box.innerHTML = html;
   if (focusId) (document.getElementById(focusId) || box.querySelector(`[data-bend="${focusId}"]`))?.focus();
   $('d-name').onchange = (e) => { v.name = e.target.value.trim() || v.name; save(); renderAll(); };
   $('d-start').onchange = (e) => { v.start = e.target.value; save(); renderAll(); };
+  if ($('d-entry')) $('d-entry').onchange = (e) => { const x = parseFloat(e.target.value); v.entryKph = x > 0 ? (project.settings.unit === 'MPH' ? x * KPH_PER_MPH : x) : 0; save(); renderAll(); };
+  $('d-copy').onclick = async (e) => {
+    if (!r.speeds) { flash(e.target, false, '', 'Nothing to copy yet'); return; }
+    flash(e.target, await copyRich(vectorTable(v, r)));
+  };
   box.querySelectorAll('[data-bend]').forEach((inp) => { inp.onchange = () => {
     const i = +inp.dataset.bend, val = parseFloat(inp.value);
     v.vertexOptions = v.vertexOptions || [];
@@ -463,7 +476,7 @@ function renderDetail() {
     let n = 1;
     const sections = r.sections.map((s) => ({ id: n++, sType: s.sType, sLength: Math.round(s.sLength * 1000) / 1000, radius: s.sType === 'STRAIGHT' ? 150 : Math.round(s.radius * 1000) / 1000, description: s.vertex != null ? `Bend at point ${s.vertex + 1}` : '' }));
     const prev = loadJSON(KEY_CALC) || {};
-    saveJSON(KEY_CALC, { ...prev, sections, counter: n, start: v.start, unit: project.settings.unit, title: `${project.title ? project.title + ' – ' : ''}${v.name}`.slice(0, 55) });
+    saveJSON(KEY_CALC, { ...prev, sections, counter: n, start: v.start, entryKph: v.entryKph || 0, order: 'FROM_START', unit: project.settings.unit, title: `${project.title ? project.title + ' – ' : ''}${v.name}`.slice(0, 55) });
     location.href = 'index.html';
   };
 }
@@ -552,3 +565,32 @@ $('proj-clear').addEventListener('click', async () => {
 // ---------- legend ----------
 $('legend').innerHTML = '<b>Worst-case impact speed</b>' + TEST_SPEEDS_KPH.map((t, i) => `<span><i style="background:${BAND_COLOURS[i]}"></i>≤ ${t} km/h</span>`).join('') + `<span><i style="background:${BAND_COLOURS[7]}"></i>&gt; 112 km/h</span>`;
 renderKey(); renderProject();
+
+// ---------- copy for report ----------
+const startText = (v) => (v.start === 'STANDING' ? 'standing start (from rest)' : v.start === 'ENTRY' ? `entry speed ${Math.round(conv(v.entryKph || 0))} ${unitName()}` : 'rolling start (already at top speed)');
+const titled = (t) => (project.title ? `${project.title} – ${t}` : t);
+function vectorTable(v, r) {
+  return reportTable({
+    title: titled(`Vector ${v.name}: impact at the line of protection`), numericFrom: 1,
+    headers: ['Vehicle', `Impact speed (${unitName()})`, 'Impact energy (kJ)', 'Next test speed (km/h)'],
+    rows: VEHICLES.map((c) => { const sp = r.speeds[c.id]; const t = nextTestSpeed(sp); return [c.name, Math.round(conv(sp)), Math.round(0.5 * MASS_KG[c.id] * (sp / 3.6) ** 2 / 1000), t ?? '> 112']; }),
+    notes: [`Run-up ${r.runUp.toFixed(1)} m; impact angle ${r.crossing.angle.toFixed(0)}° (90° = head-on); ${startText(v)}.`, ...(project.marking ? [project.marking] : [])],
+  });
+}
+$('copy-all').addEventListener('click', async (e) => {
+  const ok = project.vectors.map((v) => [v, results.get(v.id)]).filter(([, r]) => r?.speeds);
+  if (!ok.length) { flash(e.target, false, '', 'No vectors with results yet'); return; }
+  const t = reportTable({
+    title: titled('Impact speeds at the line of protection'), numericFrom: 1,
+    headers: ['Vector', 'Run-up (m)', 'Angle (°)', 'Start', ...VEHICLES.map((c) => `${c.name} (${unitName()})`)],
+    rows: ok.map(([v, r]) => [v.name, r.runUp.toFixed(0), r.crossing.angle.toFixed(0), v.start === 'ENTRY' ? `Entry ${Math.round(conv(v.entryKph || 0))}` : v.start === 'STANDING' ? 'Standing' : 'Rolling', ...VEHICLES.map((c) => Math.round(conv(r.speeds[c.id])))]),
+    notes: ['Maximum achievable speeds on a flat, level, dry surface; worst-case bend radii unless fixed by the assessor.', ...(project.marking ? [project.marking] : [])],
+  });
+  flash(e.target, await copyRich(t));
+});
+$('version').textContent = `v${VERSION}`;
+mountThemeToggle($('theme'));
+const bgColour = () => (document.documentElement.dataset.theme === 'light' ? '#eef0f2' : '#1a2026');
+const applyMapTheme = () => { if (map.getLayer('bg')) map.setPaintProperty('bg', 'background-color', bgColour()); };
+document.addEventListener('themechange', applyMapTheme);
+map.on('load', applyMapTheme);

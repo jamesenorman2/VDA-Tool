@@ -58,3 +58,9 @@ test('alignment can keep a measured scale and still report the scale the map imp
   close(fit.fittedScale / T.s, 1.02);
   assert.ok(Math.max(...fit.residuals) > 0.1); // the scale disagreement shows up as residuals
 });
+
+test('the version shown in the app matches package.json', async () => {
+  const { VERSION } = await import('../src/version.js');
+  const fs = await import('node:fs');
+  assert.equal(VERSION, JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url))).version);
+});

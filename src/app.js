@@ -1,4 +1,7 @@
-import { VEHICLES, KPH_PER_MPH, MAX_RADIUS, buildRouteSpeeds, chartSeries, validateSection } from './maths.js';
+import { VEHICLES, KPH_PER_MPH, MAX_RADIUS, buildRouteSpeeds, chartSeries, validateSection, startArg } from './maths.js';
+import { VERSION } from './version.js';
+import { mountThemeToggle } from './theme.js';
+import { reportTable, copyRich, svgToPng, copyImage, flash } from './copy.js';
 import { buildSketch } from './sketch.js';
 import { parseQuickEntry } from './quickentry.js';
 
@@ -11,6 +14,11 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 // displayed, numbered and extended: FROM_START shows the start of the route first, asset last.
 let state = { sections: [], counter: 1, start: 'ROLLING', unit: 'KPH', order: 'FROM_START', title: '' };
 try { Object.assign(state, JSON.parse(localStorage.getItem(KEY) || '{}')); } catch { /* ignore */ }
+state.order = 'FROM_START'; // entry order is always start of route → asset
+if (!['ROLLING', 'STANDING', 'ENTRY'].includes(state.start)) state.start = 'ROLLING';
+const START = () => startArg(state.start, state.entryKph);
+const START_TEXT = () => (state.start === 'STANDING' ? 'standing start (from rest)'
+  : state.start === 'ENTRY' ? `entry speed ${Math.round(conv(state.entryKph || 0))} ${unitName()}` : 'rolling start (already at top speed)');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore */ } };
 
 const newSection = (o = {}) => ({ id: state.counter++, sType: 'STRAIGHT', sLength: 0, radius: MAX_RADIUS, description: '', ...o });
@@ -198,11 +206,26 @@ $('export-results').onclick = () => {
 };
 
 // ---------- settings ----------
-const KEYS = { unit: 'unit', start: 'start', order: 'order' };
-document.querySelectorAll('input[name="unit"],input[name="start"],input[name="order"]').forEach((r) => {
+const KEYS = { unit: 'unit', start: 'start' };
+document.querySelectorAll('input[name="unit"],input[name="start"]').forEach((r) => {
   r.checked = state[KEYS[r.name]] === r.value;
-  r.onchange = () => { state[KEYS[r.name]] = r.value; if (r.name === 'order') renderRows(); update(); };
+  r.onchange = () => { state[KEYS[r.name]] = r.value; showEntry(); update(); };
 });
+// Entry speed is stored in km/h and shown in the chosen unit.
+function showEntry() {
+  $('entry-unit').textContent = unitName();
+  if (document.activeElement !== $('entry-speed')) $('entry-speed').value = state.entryKph ? +conv(state.entryKph).toFixed(1) : '';
+}
+$('entry-speed').addEventListener('input', (e) => {
+  const v = parseFloat(e.target.value);
+  state.entryKph = v > 0 ? (state.unit === 'MPH' ? v * KPH_PER_MPH : v) : 0;
+  if (state.start !== 'ENTRY') { state.start = 'ENTRY'; document.querySelector('input[name="start"][value="ENTRY"]').checked = true; }
+  update();
+});
+showEntry();
+$('version').textContent = `v${VERSION}`;
+$('print-version').textContent = `VDA Tool v${VERSION}`;
+mountThemeToggle($('theme'));
 $('title').value = state.title;
 $('title').oninput = (e) => { state.title = e.target.value; update(); };
 $('print').onclick = () => window.print();
@@ -230,12 +253,12 @@ function renderSketch(sections) {
   }
   const f = sk.flag, a = sk.assetPoint, s = sk.startPoint;
   svg.appendChild(el('circle', { cx: s.x, cy: s.y, r: f / 2, fill: '#2a9d4b' }));
-  svg.appendChild(el('text', { x: s.x, y: s.y - f * 0.65, 'text-anchor': 'middle', 'font-size': f * 0.8 }, 'Start'));
+  svg.appendChild(el('text', { x: s.x, y: s.y - f * 0.65, 'text-anchor': 'middle', 'font-size': f * 0.8, fill: 'currentColor' }, 'Start'));
   const cell = f / 3;
   for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) {
     svg.appendChild(el('rect', { x: a.x - f / 2 + c * cell, y: a.y - f / 2 + r * cell, width: cell, height: cell, fill: (r + c) % 2 ? '#fff' : '#000', stroke: '#000', 'stroke-width': f * 0.02 }));
   }
-  svg.appendChild(el('text', { x: a.x, y: a.y + f * 1.3, 'text-anchor': 'middle', 'font-size': f * 0.8 }, 'Asset'));
+  svg.appendChild(el('text', { x: a.x, y: a.y + f * 1.3, 'text-anchor': 'middle', 'font-size': f * 0.8, fill: 'currentColor' }, 'Asset'));
   setActive(active < sections.length ? active : -1);
 }
 
@@ -245,7 +268,7 @@ function niceMax(v) {
 }
 
 function renderChart(sections) {
-  const pts = chartSeries(sections, state.start);
+  const pts = chartSeries(sections, START());
   const W = 800, H = 360, m = { l: 55, r: 15, t: 10, b: 45 };
   const maxD = niceMax(Math.max(...pts.map((p) => p.distance), 1));
   const maxS = niceMax(Math.max(...pts.flatMap((p) => VEHICLES.map((v) => conv(p.speeds[v.id])))));
@@ -254,11 +277,11 @@ function renderChart(sections) {
   let out = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Speed chart">`;
   for (let i = 0; i <= 5; i++) {
     const s = (maxS * i) / 5, d = (maxD * i) / 5;
-    out += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(s)}" y2="${y(s)}" stroke="#e3e6ea"/><text x="${m.l - 6}" y="${y(s) + 4}" text-anchor="end" font-size="11">${Math.round(s)}</text>`;
-    out += `<text x="${x(d)}" y="${H - m.b + 16}" text-anchor="middle" font-size="11">${Math.round(d)}</text>`;
+    out += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(s)}" y2="${y(s)}" class="grid" stroke="#dddddd"/><text x="${m.l - 6}" y="${y(s) + 4}" text-anchor="end" font-size="11" fill="currentColor">${Math.round(s)}</text>`;
+    out += `<text x="${x(d)}" y="${H - m.b + 16}" text-anchor="middle" font-size="11" fill="currentColor">${Math.round(d)}</text>`;
   }
-  out += `<text x="${(W + m.l) / 2}" y="${H - 8}" text-anchor="middle" font-size="12">Distance to asset (m)</text>`;
-  out += `<text transform="translate(14 ${H / 2}) rotate(-90)" text-anchor="middle" font-size="12">Speed (${unitName()})</text>`;
+  out += `<text x="${(W + m.l) / 2}" y="${H - 8}" text-anchor="middle" font-size="12" fill="currentColor">Distance to asset (m)</text>`;
+  out += `<text transform="translate(14 ${H / 2}) rotate(-90)" text-anchor="middle" font-size="12" fill="currentColor">Speed (${unitName()})</text>`;
   for (const v of VEHICLES) {
     out += `<polyline fill="none" stroke="${v.colour}" stroke-width="2" points="${pts.map((p) => `${x(p.distance).toFixed(1)},${y(conv(p.speeds[v.id])).toFixed(1)}`).join(' ')}"/>`;
     for (const p of pts.filter((q) => q.major)) {
@@ -273,7 +296,7 @@ function renderChart(sections) {
 
 // Table rows in entry order: the start of the route first when entering from the start.
 function tableRows() {
-  const rows = buildRouteSpeeds(state.sections, state.start);
+  const rows = buildRouteSpeeds(state.sections, START());
   const list = rows.map((r, i) => (r.section
     ? { no: secNo(i), label: r.section.description || TYPE_NAME[r.section.sType], distance: r.distanceToAsset, speeds: r.exitSpeeds }
     : { no: '', label: 'Start of route', distance: r.distanceToAsset, speeds: r.exitSpeeds }));
@@ -287,16 +310,33 @@ function renderTable() {
 }
 
 function renderCards(sections) {
-  const r = buildRouteSpeeds(sections, state.start)[0];
+  const r = buildRouteSpeeds(sections, START())[0];
   $('cards').innerHTML = VEHICLES.map((v) => `<div class="card" style="--c:${v.colour}"><b>${Math.round(conv(r.exitSpeeds.get(v.id).speed))} ${unitName()}</b><span>${esc(v.name)}</span></div>`).join('');
-  $('total').textContent = `· route length ${fmtDist(sections.reduce((t, s) => t + s.sLength, 0))} m`;
+  $('total').textContent = `· route length ${fmtDist(sections.reduce((t, s) => t + s.sLength, 0))} m · ${START_TEXT()}`;
+  const c = compareRows(sections);
+  $('compare').innerHTML = `<table><thead><tr>${c.headers.map((h, i) => `<th class="${c.selCol === i ? 'sel' : ''}">${esc(h)}</th>`).join('')}</tr></thead><tbody>${c.rows.map((r) => `<tr>${r.map((v, i) => `<td class="${c.selCol === i ? 'sel' : ''}">${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <p class="hint">If the standing and rolling figures are close, the start condition hardly matters for this route. If they differ a lot, the result depends on where you put the start: extend the route back to a real stopping place if you can.</p>`;
+}
+
+// Speed at the asset for each start condition, in the chosen unit.
+function compareRows(sections) {
+  const cols = [['Standing start', 'STANDING']];
+  if (state.entryKph > 0) cols.push([`Entry at ${Math.round(conv(state.entryKph))} ${unitName()}`, state.entryKph]);
+  cols.push(['Rolling start', 'ROLLING']);
+  const res = cols.map(([, a]) => buildRouteSpeeds(sections, a)[0].exitSpeeds);
+  const selCol = 1 + cols.findIndex(([, a]) => (state.start === 'ENTRY' ? typeof a === 'number' : a === state.start));
+  return {
+    headers: ['Vehicle', ...cols.map(([h, a]) => (typeof a === 'number' ? h : `${h} (${unitName()})`))], selCol,
+    rows: VEHICLES.map((v) => [v.name, ...res.map((m) => Math.round(conv(m.get(v.id).speed)))]),
+  };
 }
 
 function update() {
   save();
   const bad = state.sections.some((s) => Object.keys(validateSection(s)).length);
   $('print-title').textContent = state.title;
-  $('print-summary').textContent = `Speeds in ${state.unit === 'MPH' ? 'miles per hour' : 'kilometres per hour'}; vehicles start ${state.start === 'ROLLING' ? 'at maximum speed (rolling start)' : 'stationary (standing start)'}.`;
+  $('print-summary').textContent = `Speeds in ${state.unit === 'MPH' ? 'miles per hour' : 'kilometres per hour'}; ${START_TEXT()}.`;
+  showEntry();
   if (bad) {
     $('cards').innerHTML = '';
     $('chart').innerHTML = $('table').innerHTML = '<p class="warn">Fix the invalid route sections to update the results.</p>';
@@ -308,3 +348,34 @@ function update() {
 
 renderRows();
 update();
+
+// ---------- copy for report ----------
+const titled = (t) => (state.title ? `${state.title} – ${t}` : t);
+$('copy-summary').onclick = async (e) => {
+  const sections = state.sections, r = buildRouteSpeeds(sections, START())[0];
+  const t = reportTable({
+    title: titled('Maximum speed at the asset'),
+    headers: ['Vehicle', `Speed (${unitName()})`],
+    rows: VEHICLES.map((v) => [v.name, Math.round(conv(r.exitSpeeds.get(v.id).speed))]),
+    notes: [`Route length ${fmtDist(sections.reduce((a, s) => a + s.sLength, 0))} m; ${START_TEXT()}. Flat, level, dry road; maximum achievable speeds.`],
+  });
+  flash(e.target, await copyRich(t));
+};
+$('copy-table').onclick = async (e) => {
+  const rows = tableRows();
+  const t = reportTable({
+    title: titled('Speeds along the route'), numericFrom: 2,
+    headers: ['Distance to asset (m)', 'Section', ...VEHICLES.map((v) => `${v.name} (${unitName()})`)],
+    rows: rows.map((r) => [fmtDist(r.distance), `${r.no ? r.no + '. ' : ''}${r.label}`, ...VEHICLES.map((v) => Math.round(conv(r.speeds.get(v.id).speed)))]),
+    notes: [`Speeds at the asset-side end of each section, listed from the start of the route to the asset; ${START_TEXT()}.`],
+  });
+  flash(e.target, await copyRich(t));
+};
+async function copySvg(button, svg, prepare) {
+  try { flash(button, await copyImage(await svgToPng(svg, { prepare }))); } catch { flash(button, false); }
+}
+$('copy-chart').onclick = (e) => copySvg(e.target, $('chart').querySelector('svg'), (c) => c.querySelectorAll('.grid').forEach((n) => n.setAttribute('stroke', '#dddddd')));
+$('copy-sketch').onclick = (e) => copySvg(e.target, $('sketch'), (c) => {
+  c.querySelectorAll('path.hit').forEach((n) => n.remove());
+  c.querySelectorAll('path.seg').forEach((n) => { n.setAttribute('fill', 'none'); n.setAttribute('stroke', '#1d3557'); n.setAttribute('stroke-width', '3'); n.setAttribute('vector-effect', 'non-scaling-stroke'); });
+});
