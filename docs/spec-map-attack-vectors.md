@@ -1,6 +1,33 @@
 # Spec: Map-based attack vector assessment
 
-Status: **Draft v0.1 – for review**. Open questions are numbered `Q1…` in §12. Each one has a proposed default, so "go with the defaults" is a valid answer.
+Status: **Draft v0.2**. The answers to Q1–Q27 are recorded in §0 and change the plan in several places. Follow-up questions raised by those answers are in §13. The Phase 0/1 build plan is in [`plan-p0-p1.md`](plan-p0-p1.md).
+
+---
+
+## 0. Decisions (v0.2)
+
+| Q | Decision | What it changes |
+|---|---|---|
+| Q1 | Specialist assessors; clients view reports only | – |
+| Q2 | **MapLibre GL** | WebGL vector map, rotation and plan-image overlays in one library. It is the first runtime dependency |
+| Q3 | **Online maps are fine by default** | No longer offline-first. Basemap, imagery and address search are in **P1**, not P2 (see §13 F1, F2) |
+| Q4 | UK first (EPSG:27700), WGS84 always stored | – |
+| Q5–Q9 | Defaults: PDF + PNG/JPG; DXF later; always two-point calibration; warn > 2 %, block > 5 %; ± band from P3 | – |
+| Q10 | Largest radius that fits (worst case) | – |
+| Q11 | **S-bends, chicanes and roundabouts are common** | The full minimum-curvature racing-line solver (§7.3 B) moves up to the automation phase. The per-bend formula is no longer enough |
+| Q12 | Manual class exclusion in P1, automatic swept-path check later | – |
+| Q13 | **Everything is traversable except buildings** | The "corridor" is the open site, so no surface drawing is needed. Racing lines and route search work in open space bounded by buildings and barriers |
+| Q14 | Only rated products and buildings stop a vehicle | Consistent with Q13 |
+| Q15 | **ISO 22343, PAS 68 and ASTM F2656**, with ISO 22343 as the current standard (it supersedes IWA 14-1) | Ratings are shown in all three. The class ↔ test-vehicle mapping per standard is §13 F3 |
+| Q16–Q19 | Angle reported only; 1.2 m gap; gradients out of scope until P4; local only, no server | – |
+| Q20 | **Choose from a fixed set of protective markings** | Marking list needed (§13 F4) |
+| Q21 | Lock and version in P1, full workflow later | Needs a light review state as well, given Q24 (§13 F5) |
+| Q22 | **Word as well as PDF** | `.docx` report generation in P1 |
+| Q23 | Tablet is nice to have; desktop first | – |
+| Q24 | **The tool produces a full assessment that a reviewer checks** | Auto-generation of vectors is the target, not a P4 extra. The audit trail and "generated vs drawn" marking matter more |
+| Q25 | Study area is assessor-drawn, with a 440 m default ring | – |
+| Q26 | **Seed buildings and roads from OSM by default** | With Q13, OSM buildings alone give a usable first obstacle map |
+| Q27 | 2–3 anonymised past sites are available as test cases | They become regression fixtures in P1 |
 
 ---
 
@@ -34,8 +61,8 @@ The key design decision: **the map layer only produces `sections[]`**, the same 
 
 Core use cases:
 
-1. Assess an existing site from a scaled plan (PDF/PNG) with **no internet**. This is likely the most common case for sensitive sites.
-2. Assess a site on a live basemap (aerial imagery or OSM) at an early feasibility stage.
+1. Assess a site on a live basemap (aerial imagery or OSM), with a scaled plan overlaid where one exists.
+2. Assess a site from a scaled plan (PDF/PNG) alone, when there is no usable imagery or the plan is newer than it.
 3. Compare *as-is* with *proposed mitigation* and show the reduction in impact speed.
 4. Produce a report pack: a map with vectors coloured by speed, a table per vector, the required ratings for each perimeter segment, and the assumptions.
 
@@ -86,7 +113,7 @@ Three ways to create a vector, in order of delivery:
 
 **4b. Freehand / trace (Phase 2).** The assessor sketches along the road. The tool simplifies the line (Ramer–Douglas–Peucker), estimates curvature from three-point circumcircles, and splits the line into straights and constant-radius arcs. The result is shown as editable vertices plus fillets, so the assessor can always correct it.
 
-**4c. Corridor / racing line (Phase 3, the big automation win).** The assessor marks the *traversable surface*: carriageway edges, plus pavements, verges and grass where a vehicle can mount the kerb (Q13). The tool computes the **fastest line through each bend**, not the centreline. For a bend of deflection θ with traversable width w and inner kerb radius rᵢ:
+**4c. Corridor / racing line (P2, the big automation win).** Per Q13, everything except buildings and rated barriers is traversable. Buildings come from OSM by default (Q26) and the assessor can edit them. The tool computes the **fastest line through each bend**, not the centreline. For a bend of deflection θ with traversable width w and inner kerb radius rᵢ:
 
   R = rᵢ + w / (1 − cos(θ/2))
 
@@ -171,7 +198,7 @@ Closed forms break down for S-bends and chicanes. Two options (Q11):
 - **A. Iterative fillet optimisation:** maximise the minimum cornering speed along the path, subject to the arcs staying inside the corridor polygon. This is small and deterministic.
 - **B. Minimum-curvature path:** a classic racing-line problem. Discretise the corridor centreline and pick a lateral offset per station to minimise Σκ² (a quadratic programme), then segment the result into arcs (§4b). This is more general and copes with arbitrary geometry.
 
-Recommendation: start with A, which covers the majority of real sites (junctions, single bends, an entrance off a road), and move to B when chicanes matter.
+Decision (Q11): S-bends, chicanes and roundabouts are common, so **B is the target**. A remains useful as a fast first guess and as a check on B.
 
 ### 7.4 Auto vector generation
 - Rasterise the traversable surface at 0.25–0.5 m, with obstacles as hard blocks and inflated by half the vehicle width per class.
@@ -199,7 +226,7 @@ Extend `traverseSection` with an optional `capAfter` value. After the section, `
 
 ## 9. Non-functional requirements
 
-- **Offline-first.** The full workflow on a plan underlay works with no network. Map tiles are optional, and the app says so clearly whenever site data might leave the machine (Q3).
+- **Online by default (Q3).** Basemaps, imagery, address search and OSM data are on by default. The plan-only workflow still works with no network, and a per-project "no online services" switch is proposed in §13 F2.
 - **Determinism and reproducibility.** The same project file gives the same numbers. The report records the engine version, and vehicle data is versioned.
 - **Performance.** 50 vectors × 6 classes recompute in < 100 ms. Dragging a vertex updates its speeds live, at 60 fps target. Auto-generation runs in a worker with progress shown.
 - **Accuracy targets.** The geometry → sections round-trip is accurate to < 1 cm. A calibration check error > 2 % triggers a warning (Q8).
@@ -213,11 +240,11 @@ Extend `traverseSection` with an optional `capAfter` value. After the section, `
 
 | Phase | Scope | Gets you |
 |---|---|---|
-| **P0: Foundations** | Project model, IndexedDB, `.vda` file, multi-vector refactor of `app.js`, speed-cap waypoints in `maths.js` | Many routes per project |
-| **P1: Plan underlay MVP** | Upload image/PDF, two-point scale + check measurement, north, asset + LoP, click-to-draw vectors with fillets (as-drawn / max-feasible), impact angle, KE, required rating, map colouring, per-vector existing outputs, report v1 | **The core ask**, fully offline |
-| **P2: Real maps** | Basemap, address search, georeference plan onto map, freehand trace → arcs, GeoJSON/KML export, national grid | Early-stage studies without a plan |
-| **P3: Automation** | Surfaces and obstacles, corridor racing line (single bend, then sequences), rated barrier lines with gap check, scenarios and deltas, sensitivity bands, class swept-path filter | The "automate the whole process" ask |
-| **P4: Generation and depth** | Auto vector search, gradients from DEM/LiDAR or manual levels (needs model work, Q18), multi-user review/sign-off | Vectors found for the assessor, with a full audit trail |
+| **P0: Foundations** | Project model, IndexedDB, `.vda` file, multi-vector refactor of `app.js`, speed-cap waypoints in `maths.js`, local metric frame ↔ WGS84 ↔ EPSG:27700 | Many routes per project |
+| **P1: Map and drawing MVP** | MapLibre basemap + imagery + address search; plan upload with two-point scale and check; plan placed on the map by control points; asset + LoP; click-to-draw vectors with largest-fit fillets; impact angle, KE, ratings in ISO 22343 / PAS 68 / ASTM; per-vector existing outputs; PDF + Word report v1 with chosen marking; lock and version; Q27 sites as regression tests | **The core ask** |
+| **P2: Automation** | OSM buildings as obstacles by default; minimum-curvature racing line through any sequence of bends; auto vector search (hybrid A*) within the study area; generated vectors marked and listed for reviewer check | **The tool produces the assessment (Q24)** |
+| **P3: Mitigation and depth** | Rated barrier lines with gap check; speed caps/gates; scenarios and deltas; sensitivity bands; automatic swept-path class check; review workflow; GeoJSON/DXF if needed | Design options and their effect on impact speed |
+| **P4: Later** | Gradients (needs vehicle data), tablet / on-site GPS | – |
 
 P1 acceptance criteria (draft):
 - Calibrate a plan with two clicks and a distance. A second measurement shows the error as a percentage.
@@ -241,7 +268,7 @@ P1 acceptance criteria (draft):
 
 ## 12. Questions to tighten the spec
 
-Answer by number. Proposed defaults are in *italics*.
+**Answered 14 Nov 2026. See §0 for the decisions.** The list is kept below for reference. Proposed defaults are in *italics*.
 
 ### A. Scope and users
 - **Q1.** Who is the primary user: in-house assessors only, external consultants, or clients self-serving? *Specialist assessors; clients view reports only.*
@@ -281,3 +308,14 @@ Answer by number. Proposed defaults are in *italics*.
 - **Q25.** For auto-generation, what is the study-area boundary: a fixed radius around the asset (e.g. 300 m), the site boundary, or assessor-drawn? *Assessor-drawn, with a 440 m default ring. 440 m is where the engine's acceleration curves reach terminal speed.*
 - **Q26.** Should OSM road and building data be imported automatically to seed surfaces and obstacles? This raises the same data-egress question as Q3. *Optional in P2/P3, behind the same opt-in.*
 - **Q27.** Do you have real past assessments (plan + hand-measured routes + results) we can use as regression tests for the drawing → sections pipeline and for the racing-line maths? *Yes please. Two or three anonymised sites would be ideal.*
+
+---
+
+## 13. Follow-up questions (raised by the v0.2 answers)
+
+- **F1. Imagery and tile provider.** The OpenStreetMap tile servers do not allow use by applications like this one, and aerial imagery needs a licensed provider. Options: MapTiler, Esri World Imagery, Mapbox, or Ordnance Survey (OS Maps API, good UK detail, has a free tier). These need an API key and have licence terms that restrict printing in reports. Which provider does the organisation have, or want?
+- **F2. Sensitive projects.** Q3 makes online services the default, while Q20 adds protective markings. Should choosing a marking above a set level automatically switch off online services (tiles, search, OSM) for that project?
+- **F3. ISO 22343 details.** Confirm which parts apply (22343-1 rating, 22343-2 application/assessment). For each of the six classes, give the test vehicle designation in ISO 22343, PAS 68 and ASTM F2656, so the required-rating output is correct.
+- **F4. Marking list.** Which protective markings should the report offer (e.g. OFFICIAL, OFFICIAL-SENSITIVE, client-specific), and what handling text goes with each?
+- **F5. Reviewer check.** With the tool producing a full assessment (Q24), what must a reviewer do before the report can be issued: accept each generated vector, or sign off the assessment as a whole?
+- **F6. Word report.** Is there a house Word template (styles, cover page, logo) the `.docx` must follow?
