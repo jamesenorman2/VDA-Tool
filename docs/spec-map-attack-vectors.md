@@ -318,7 +318,7 @@ Answered 14 Nov 2026:
 | # | Question | Decision |
 |---|---|---|
 | F1 | Map and imagery provider | **MapTiler free tier** (street maps + satellite under one key). It is a personal, non-commercial tool, so the free tier's terms apply. Attribution is shown on the map and in reports |
-| – | Hosting | **Static website** (e.g. GitHub Pages or Vercel). The key is entered in settings, kept in the browser and never committed. It is restricted to the site's address in the MapTiler dashboard. All site data stays in the browser; there is no server |
+| – | Hosting | **Static website on Vercel** (project `vda-tool`, production at vda-tool.vercel.app, auto-deployed from `main`). The key is entered in settings, kept in the browser and never committed. It is restricted to the site's address in the MapTiler dashboard. All site data stays in the browser; there is no server |
 | F2 | Sensitive projects | **Warn only.** A marking above OFFICIAL shows a warning that tiles, address search and OSM import send the site's location to third parties. Online services stay on |
 | F3 | Vehicle classes | **Both.** The current six classes stay the default. An **ISO 22343 class set** is offered as an option per project. Any ISO class without matching acceleration and cornering data is shown as "no data", never estimated. Each class maps to its test vehicle in ISO 22343, PAS 68 and ASTM F2656 for the rating output (mapping table still to be filled in and checked) |
 | F4 | Markings | **UK Government Security Classifications** (OFFICIAL, OFFICIAL-SENSITIVE, optional descriptors) **plus client-specific markings** defined per project, each with its own handling text |
