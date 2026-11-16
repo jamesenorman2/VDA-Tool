@@ -81,3 +81,13 @@ test('NPSA comparison: our own figures compare as matching; a 3 km/h error is fl
   assert.equal(res.length, 12);
   assert.deepEqual(res.filter((r) => !r.ok).map((r) => [r.case, r.vehicle]), [['C12', VEHICLES[0].name]]);
 });
+
+test('HOVVA copy lists sections from the asset back to the start', async () => {
+  const { hovvaTable } = await import('../src/copy.js');
+  // Engine order: nearest the asset first.
+  const t = hovvaTable([{ sType: 'STRAIGHT', sLength: 60 }, { sType: 'CURVE_RIGHT', sLength: 40, radius: 25 }, { sType: 'STRAIGHT', sLength: 100 }]);
+  const lines = t.text.split('\n');
+  assert.match(lines[2], /^1\tStraight\t60\t\tat the asset$/);
+  assert.match(lines[3], /^2\tRight curve\t40\t25\t$/);
+  assert.match(lines[4], /^3\tStraight\t100\t\tstart of route$/);
+});
