@@ -825,7 +825,7 @@ function renderDetail() {
       const s = r.speeds[c.id], ke = 0.5 * MASS_KG[c.id] * (s / 3.6) ** 2 / 1000, t = nextTestSpeed(s, c.id);
       return `<tr><td>${esc(c.name)}</td><td>${Math.round(conv(s))}</td><td>${Math.round(ke).toLocaleString()}</td><td>${t ? `${t} km/h` : `<span class="bad" title="No ISO 22343-1 test exists above ${MAX_TEST_SPEED_KPH[c.id]} km/h for this vehicle class">above ${MAX_TEST_SPEED_KPH[c.id]}</span>`}</td></tr>`;
     }).join('')}</tbody></table>
-    <p class="hint">Test speed is the lowest standard impact test speed at or above the impact speed. Full ratings per standard come once the vehicle mapping is confirmed.</p>`;
+    <p class="hint">Test speed is the lowest ISO 22343-1 impact test speed at or above the impact speed that exists for the class (trucks up to 80, flatbeds up to 96, cars and pick-ups up to 112 km/h). The report gives the full ISO rating per section.</p>`;
   }
   const bends = (r.vertices || []);
   if (bends.length) {
