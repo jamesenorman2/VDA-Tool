@@ -68,8 +68,11 @@ export function svgToPng(svg, { width = 1600, prepare } = {}) {
   });
 }
 
-export async function copyImage(blob) {
-  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); return true; } catch { return false; }
+// Pass the image as a promise and call this straight from the click: Safari only allows clipboard
+// writes that start inside the user's gesture, and accepts a promise for content still being made.
+export async function copyImage(blobOrPromise) {
+  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blobOrPromise })]); return true; } catch { /* try again with a finished blob */ }
+  try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': await blobOrPromise })]); return true; } catch { return false; }
 }
 
 // Show a short confirmation next to a copy button.

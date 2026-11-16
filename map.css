@@ -88,3 +88,12 @@ label.chk { display: inline-flex !important; align-items: center; gap: .3rem; fo
 #vec-list li.rejected button { opacity: .55; }
 .review { display: grid; gap: .4rem; padding: .5rem .6rem; border: 1px dashed #e0a100; border-radius: 6px; }
 @media (max-width: 760px) { #drawbar { bottom: calc(45% + 16px); } }
+#legend { pointer-events: none; }
+#legend em { font-style: normal; }
+#legend .short { display: none; }
+@media (max-width: 760px) {
+  #legend { top: 8px; left: 8px; right: auto; bottom: auto; display: flex; flex-wrap: wrap; gap: 2px 6px; max-width: calc(100% - 64px); padding: .25rem .4rem; opacity: .92; }
+  #legend b { width: 100%; font-weight: 600; }
+  #legend .full { display: none; } #legend .short { display: inline; }
+  #legend span { gap: .2rem; } #legend i { width: 10px; height: 6px; }
+}

@@ -15,24 +15,24 @@
 // approximates a driver cutting corners. Each candidate is scored with the same engine as drawn
 // vectors, and the fastest per stretch of LoP are kept. Results are suggestions for the assessor.
 
-import { VEHICLES, buildRouteSpeeds } from './maths.js';
+import { VEHICLES, MAX_RADIUS, buildRouteSpeeds } from './maths.js';
 import { polylineToSections } from './geometry/fillet.js';
 import { sub, add, mul, dist, dot, cross, centroid, pointInPolygon, nearestOnSegment, segmentIntersect, simplify, signedArea, offsetPolygon } from './geometry/polygon.js';
 
 const unit = (a) => { const l = Math.hypot(a.x, a.y); return { x: a.x / l, y: a.y / l }; };
 const rot = (v, a) => ({ x: v.x * Math.cos(a) - v.y * Math.sin(a), y: v.x * Math.sin(a) + v.y * Math.cos(a) });
 
-function withBox(poly) {
+function withBox(poly, orig = poly) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const p of poly) { minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y); }
-  return { poly, minX, minY, maxX, maxY };
+  return { poly, orig, minX, minY, maxX, maxY };
 }
 const boxHit = (b, x0, y0, x1, y1) => !(b.maxX < Math.min(x0, x1) || b.minX > Math.max(x0, x1) || b.maxY < Math.min(y0, y1) || b.minY > Math.max(y0, y1));
 
 // `clearance` grows every obstacle outward (metres), so paths keep roughly half a vehicle's
 // width away from walls and cannot slip through a corner point.
 export function makeObstacleIndex(polys, clearance = 0) {
-  const items = polys.filter((p) => p.length >= 3).map((p) => withBox(clearance > 0 ? offsetPolygon(p, clearance) : p));
+  const items = polys.filter((p) => p.length >= 3).map((p) => withBox(clearance > 0 ? offsetPolygon(p, clearance, 30) : p, p));
   return {
     items,
     // First hit along a→b as a fraction of the segment, or null. `hits` collects the obstacle hit.
@@ -69,7 +69,7 @@ export function obstacleLimitedRadii(points, index) {
   const opts = [];
   const r0 = polylineToSections(points, opts);
   for (const v of r0.vertices) {
-    if (v.straight) continue;
+    if (v.theta < 1e-6) continue; // collinear: no bend at all
     const arcClear = (o) => {
       const res = polylineToSections(points, o);
       const arc = res.pieces.find((p) => p.kind === 'arc' && p.vertex === v.point);
@@ -81,8 +81,12 @@ export function obstacleLimitedRadii(points, index) {
       }
       return true;
     };
-    if (arcClear(opts)) continue;
-    let lo = 0.5, hi = v.radius;
+    // A bend wider than the model's limit has no speed limit, which is only fair if a vehicle can
+    // actually sweep round it: test the arc at the limit radius. If that hits an obstacle, tighten.
+    const start = v.straight ? MAX_RADIUS : v.radius;
+    const trial = opts.slice(); trial[v.point] = { mode: 'fixed', radius: start };
+    if (v.straight ? arcClear(trial) : arcClear(opts)) continue;
+    let lo = 0.5, hi = start;
     for (let it = 0; it < 10; it++) {
       const mid = (lo + hi) / 2;
       const o = opts.slice(); o[v.point] = { mode: 'fixed', radius: mid };
@@ -209,8 +213,8 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
         // Round the corner: a vehicle running along an obstacle that blocked a straight run can
         // swing round one of its corners onto the line. Corners are passed 1.5 m clear.
         for (const it of blockers) {
-          const c = centroid(it.poly);
-          for (const V of it.poly) {
+          const c = centroid(it.orig);
+          for (const V of it.orig) { // the real corners, not the rounded clearance outline
             const away = sub(V, c), al = Math.hypot(away.x, away.y);
             if (al < 1e-6) continue;
             const corner = add(V, mul(away, 1.5 / al));
@@ -230,10 +234,9 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
             if (!best) continue;
             const pts = [add(corner, mul(best.d, best.run)), corner, smp.p, add(smp.p, mul(unit(toT), 1))];
             try {
-              const vo = obstacleLimitedRadii(pts, index);
               const start = best.open ? 'ROLLING' : 'STANDING';
-              const sc = scoreVector(pts, vo, start);
-              push({ points: pts, vertexOptions: vo, start, kind: 'corner', lopId: smp.lopId, s: smp.s, ...sc,
+              const sc = scoreVector(pts, [], start); // upper bound: bends not yet limited by obstacles
+              push({ points: pts, vertexOptions: null, start, kind: 'corner', lopId: smp.lopId, s: smp.s, ...sc,
                 note: `Runs ${Math.round(best.run)} m alongside an obstacle, then round its corner onto the line (${start === 'ROLLING' ? 'rolling' : 'standing'} start).` }, smp);
             } catch { /* degenerate */ }
           }
@@ -269,10 +272,9 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
             let pts = simplify([...route, smp.p, add(smp.p, mul(toLop, 1))], 1.5);
             if (pts.length < 2) continue;
             try {
-              const vo = obstacleLimitedRadii(pts, index);
               const start = w.reachedRadius ? 'ROLLING' : 'STANDING';
-              const sc = scoreVector(pts, vo, start);
-              push({ points: pts, vertexOptions: vo, start, kind: 'road', lopId: smp.lopId, s: smp.s, ...sc,
+              const sc = scoreVector(pts, [], start); // upper bound: bends not yet limited by obstacles
+              push({ points: pts, vertexOptions: null, start, kind: 'road', lopId: smp.lopId, s: smp.s, ...sc,
                 note: w.reachedRadius ? `Along the road network for the full ${radius} m study radius, then off the road to the line (rolling start).` : 'Along the road network from a dead end, then off the road to the line (standing start).' }, smp);
             } catch { /* degenerate path */ }
           }
@@ -284,12 +286,23 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
   // Keep the fastest per stretch of LoP, then the fastest overall. Ties (within 0.5 km/h) go to
   // the more head-on impact.
   const better = (a, b) => (Math.abs(a.worst - b.worst) > 0.5 ? a.worst > b.worst : a.angle > b.angle);
+  // Bends are limited by obstacles only for candidates that could still win their bin: the
+  // unlimited score is an upper bound, so anything already beaten by a refined winner is skipped.
   const bins = new Map();
+  let refined = 0;
+  all.sort((a, b) => b.worst - a.worst);
   for (const c of all) {
     const k = `${c.lopId}:${Math.floor(c.s / binLength)}`;
-    if (!bins.has(k) || better(c, bins.get(k))) bins.set(k, c);
+    const cur = bins.get(k);
+    if (cur && c.worst < cur.worst - 0.5) continue;
+    if (c.vertexOptions === null) {
+      c.vertexOptions = obstacleLimitedRadii(c.points, index);
+      Object.assign(c, scoreVector(c.points, c.vertexOptions, c.start));
+      refined++;
+    }
+    if (!cur || better(c, cur)) bins.set(k, c);
   }
   const candidates = [...bins.values()].sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0)).slice(0, maxResults);
-  return { candidates, all, stats: { samples: all.length, rays, roadPaths, bins: bins.size } };
+  return { candidates, all, stats: { samples: all.length, rays, roadPaths, refined, bins: bins.size } };
 }
 

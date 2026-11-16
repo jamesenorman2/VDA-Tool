@@ -18,7 +18,7 @@ state.order = 'FROM_START'; // entry order is always start of route → asset
 if (!['ROLLING', 'STANDING', 'ENTRY'].includes(state.start)) state.start = 'ROLLING';
 const START = () => startArg(state.start, state.entryKph);
 const START_TEXT = () => (state.start === 'STANDING' ? 'standing start (from rest)'
-  : state.start === 'ENTRY' ? `entry speed ${Math.round(conv(state.entryKph || 0))} ${unitName()}` : 'rolling start (already at top speed)');
+  : state.start === 'ENTRY' ? (state.entryKph > 0 ? `entry speed ${Math.round(conv(state.entryKph))} ${unitName()}` : 'entry speed not set, so treated as a standing start') : 'rolling start (already at top speed)');
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* ignore */ } };
 
 const newSection = (o = {}) => ({ id: state.counter++, sType: 'STRAIGHT', sLength: 0, radius: MAX_RADIUS, description: '', ...o });
@@ -372,7 +372,7 @@ $('copy-table').onclick = async (e) => {
   flash(e.target, await copyRich(t));
 };
 async function copySvg(button, svg, prepare) {
-  try { flash(button, await copyImage(await svgToPng(svg, { prepare }))); } catch { flash(button, false); }
+  try { flash(button, await copyImage(svgToPng(svg, { prepare }))); } catch { flash(button, false); }
 }
 $('copy-chart').onclick = (e) => copySvg(e.target, $('chart').querySelector('svg'), (c) => c.querySelectorAll('.grid').forEach((n) => n.setAttribute('stroke', '#dddddd')));
 $('copy-sketch').onclick = (e) => copySvg(e.target, $('sketch'), (c) => {

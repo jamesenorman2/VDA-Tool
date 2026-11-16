@@ -9,7 +9,7 @@ import { newProject, newVector, resolveVector, pathLength } from './model.js';
 import { makeFrame } from './frames.js';
 import { planToLocal, localToPlan, scaleFromTwoPoints, rescale, checkError, measureOnPlan, fitSimilarity } from './calibrate.js';
 import { putBlob, getBlob, deleteBlob, loadJSON, saveJSON, blobToDataURL, dataURLToBlob } from './store.js';
-import { area, perimeter, polylineLength, dist, centroid, pointInPolygon, nearestOnPolyline, offsetPolygon, simplify, rectangleFrom, minDistance } from './geometry/polygon.js';
+import { area, perimeter, polylineLength, dist, centroid, pointInPolygon, nearestOnPolyline, offsetPolygon, simplify, rectangleFrom, minDistance, bufferLine } from './geometry/polygon.js';
 import { fetchOSM } from './osm.js';
 import { generateVectors } from './autogen.js';
 
@@ -61,6 +61,7 @@ const map = new maplibregl.Map({
 map.addControl(new maplibregl.NavigationControl({ visualizePitch: false }), 'top-right');
 map.addControl(new maplibregl.ScaleControl({ unit: 'metric', maxWidth: 140 }), 'bottom-left');
 map.on('moveend', () => { const c = map.getCenter(); project.view = { center: [c.lng, c.lat], zoom: map.getZoom() }; save(); });
+map.on('zoomend', () => { if (selected) renderAll(true); }); // "add point" dots depend on zoom
 
 function basemapSource(kind) {
   if (kind === 'none') return null;
@@ -252,10 +253,12 @@ function pushHistory() {
   if (history.length > 50) history.shift();
 }
 function undo() {
+  if (mode?.points?.length) { mode.points.pop(); renderTemp(); return; }
   const snap = history.pop();
   if (!snap) { $('osm-status').textContent = 'Nothing to undo.'; return; }
   Object.assign(project, JSON.parse(snap));
-  selected = null; selectedVertex = null; save(); renderAll();
+  if (!findItem(selected)) selected = null; // keep the selection when the shape still exists
+  selectedVertex = null; save(); renderAll();
 }
 $('undo').addEventListener('click', undo);
 
@@ -389,7 +392,7 @@ async function tapBuilding(lngLat) {
   ensureFrame(lngLat);
   if (!project.osm || dist(toLocal(lngLat), project.osm.centre) > project.osm.radius - 50) await loadOSM(lngLat);
   const p = toLocal(lngLat);
-  const b = osmBuildings(true).find((x) => pointInPolygon(p, x.points));
+  const b = osmBuildings(true).find((x) => !x.wall && pointInPolygon(p, x.points));
   if (!b) { $('db-hint').textContent = 'No building outline there. Zoom in and tap inside a building, or draw the outline instead.'; return; }
   pushHistory();
   const a = { id: uid('ast'), name: `Asset ${project.assets.length + 1}`, points: b.points.map((q) => ({ ...q })), osmId: b.id };
@@ -401,18 +404,21 @@ async function tapBuilding(lngLat) {
 // ---------- OpenStreetMap buildings and roads ----------
 const osmBuildings = (includeExcluded) => (project.osm?.buildings || []).filter((b) => includeExcluded || !(project.osmExcluded || []).includes(b.id));
 let osmLoading = null;
-async function loadOSM(centreLL) {
+async function loadOSM(centreLL, minRadius = 0) {
   if (osmLoading) return osmLoading;
   ensureFrame(centreLL);
-  const radius = Math.max(500, (+$('ag-radius').value || 440) + 100);
+  const radius = Math.round(Math.max(500, (+$('ag-radius').value || 440) + 100, minRadius));
   $('osm-status').textContent = 'Loading buildings and roads from OpenStreetMap…';
   osmLoading = fetchOSM({ lat: centreLL.lat, lng: centreLL.lng }, radius).then((d) => {
     project.osm = {
       centre: toLocal(centreLL), radius, at: new Date().toISOString(),
-      buildings: d.buildings.map((b) => ({ id: b.id, points: b.ll.map(toLocal) })),
+      buildings: [
+        ...d.buildings.map((b) => ({ id: b.id, points: b.ll.map(toLocal) })),
+        ...(d.walls || []).map((w) => ({ id: w.id, wall: w.kind, points: bufferLine(w.ll.map(toLocal), 0.3) })),
+      ],
       roads: d.roads.map((r) => ({ id: r.id, kind: r.kind, points: r.ll.map(toLocal) })),
     };
-    $('osm-status').textContent = `${d.buildings.length} buildings and ${d.roads.length} roads loaded within ${radius} m. Tap a building to see it or mark it as not an obstacle.`;
+    $('osm-status').textContent = `${d.buildings.length} buildings, ${(d.walls || []).length} walls and barriers, and ${d.roads.length} roads loaded within ${radius} m. Tap one to see it or mark it as not an obstacle.`;
     save(); renderAll();
   }).catch((e) => { $('osm-status').textContent = `Could not load map data: ${e.message}`; }).finally(() => { osmLoading = null; });
   return osmLoading;
@@ -429,7 +435,9 @@ $('lop-auto').addEventListener('click', () => {
   const d = parseFloat($('standoff').value);
   if (!(d > 0)) { $('osm-status').textContent = 'Enter a standoff above 0 m.'; return; }
   pushHistory();
-  const l = { id: uid('lop'), name: `Line ${project.lops.length + 1} (${d} m round ${a.name})`, points: simplify(offsetPolygon(a.points, d), 0.05), closed: true, standoff: d, assetId: a.id };
+  // Smooth out tiny notches in mapped outlines first, so the standoff line has no kinks or loops.
+  const ring = simplify([...a.points, a.points[0]], Math.min(0.5, d / 10)).slice(0, -1);
+  const l = { id: uid('lop'), name: `Line ${project.lops.length + 1} (${d} m round ${a.name})`, points: simplify(offsetPolygon(ring.length >= 3 ? ring : a.points, d, 30, true), 0.05), closed: true, standoff: d, assetId: a.id };
   project.lops.push(l);
   selected = { kind: 'lop', id: l.id }; selectedVertex = null;
   save(); renderAll();
@@ -448,6 +456,7 @@ map.on('click', (e) => {
   selected = f ? { kind: f.properties.kind, id: f.properties.id } : null;
   selectedVertex = null;
   renderAll();
+  revealDetail();
 });
 map.on('dblclick', (e) => {
   if (mode?.kind === 'draw') { e.preventDefault(); finishDraw(); return; }
@@ -456,6 +465,7 @@ map.on('dblclick', (e) => {
 });
 function pointerMove(lngLat) {
   mouseLL = lngLat;
+  if (!frame && mode?.kind === 'draw') ensureFrame(lngLat); // a new project has no map frame until first use
   if (mode?.kind === 'draw') { renderTemp(); showSnap(snap(lngLat)); }
   if (drag) {
     drag.moved = true;
@@ -473,7 +483,9 @@ for (const layer of ['handles', 'mids']) {
   map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
 }
 function beginDrag(e, layer) {
-  if (mode) return;
+  if (mode || drag) return;
+  // A real point always wins over an "add point" dot drawn underneath or beside it.
+  if (layer === 'mids' && map.queryRenderedFeatures(e.point, { layers: ['handles'] }).length) return;
   e.preventDefault();
   const p = e.features[0].properties;
   if (layer === 'mids') {
@@ -501,7 +513,7 @@ function endDrag() {
       item.points[d.idx] = d.from || now; pushHistory(); item.points[d.idx] = now;
     }
     save(); renderAll();
-  }
+  } else renderAll(); // a tap on a point selects it
 }
 map.on('mouseup', endDrag);
 map.on('touchend', endDrag);
@@ -593,16 +605,25 @@ function renderAll(fast) {
   const item = findItem(selected);
   const coarse = matchMedia('(pointer: coarse)').matches;
   const editable = item && selected.kind !== 'osm';
-  setData('handles', { type: 'FeatureCollection', features: editable ? item.points.map((p, idx) => ({ type: 'Feature', properties: { kind: selected.kind, id: item.id, idx, coarse, sel: idx === selectedVertex }, geometry: { type: 'Point', coordinates: toLL(p) } })) : [] });
+  // Thin out handles that would sit on top of each other on screen; zoom in to reach the rest.
+  const gapM = (coarse ? 28 : 16) * metresPerPixel();
+  let lastShown = null;
+  const shown = editable ? item.points.map((p, idx) => ({ p, idx })).filter(({ p, idx }) => {
+    if (idx === selectedVertex || !lastShown || dist(p, lastShown) >= gapM) { lastShown = p; return true; }
+    return false;
+  }) : [];
+  setData('handles', { type: 'FeatureCollection', features: shown.map(({ p, idx }) => ({ type: 'Feature', properties: { kind: selected.kind, id: item.id, idx, coarse, sel: idx === selectedVertex }, geometry: { type: 'Point', coordinates: toLL(p) } })) });
   const closedItem = editable && (selected.kind === 'asset' || selected.kind === 'obstacle' || (selected.kind === 'lop' && item.closed));
   const edges = editable ? item.points.map((p, i) => [p, item.points[i + 1] ?? (closedItem ? item.points[0] : null), i]).filter((e) => e[1]) : [];
-  setData('mids', { type: 'FeatureCollection', features: edges.map(([a, b, idx]) => ({ type: 'Feature', properties: { kind: selected.kind, id: item.id, idx, coarse }, geometry: { type: 'Point', coordinates: toLL({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }) } })) });
+  // Only offer "add point" dots on edges long enough on screen to tap without hitting a point.
+  const minPx = coarse ? 56 : 32, mpp = metresPerPixel();
+  setData('mids', { type: 'FeatureCollection', features: edges.filter(([a, b]) => dist(a, b) / mpp > minPx).map(([a, b, idx]) => ({ type: 'Feature', properties: { kind: selected.kind, id: item.id, idx, coarse }, geometry: { type: 'Point', coordinates: toLL({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }) } })) });
   // Edge lengths on the selected shape.
   segTags.forEach((t) => t.remove()); segTags = [];
   if (item && selected.kind !== 'vector') {
     const allEdges = item.points.map((p, i) => [p, item.points[i + 1] ?? (selected.kind !== 'lop' || item.closed ? item.points[0] : null)]).filter((e) => e[1]);
     if (allEdges.length <= 40) for (const [a, b] of allEdges) {
-      const L = dist(a, b); if (L < 2) continue;
+      const L = dist(a, b); if (L < 2 || L / mpp < 70) continue; // only where the label fits on screen
       const el = document.createElement('div'); el.className = 'seg-tag'; el.textContent = `${L.toFixed(1)} m`;
       segTags.push(new maplibregl.Marker({ element: el }).setLngLat(toLL({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })).addTo(map));
     }
@@ -612,6 +633,7 @@ function renderAll(fast) {
   for (const v of project.vectors) {
     const r = results.get(v.id);
     if (!r.speeds || v.status === 'rejected') continue;
+    if (v.status === 'suggested' && !(selected?.kind === 'vector' && selected.id === v.id)) continue; // keeps the map readable
     const el = document.createElement('div');
     el.className = 'speed-tag'; el.style.setProperty('--c', bandColour(r.worst));
     el.textContent = `${v.name} · ${Math.round(conv(r.worst))}`;
@@ -637,8 +659,13 @@ function renderList() {
 }
 $('vec-list').addEventListener('click', (e) => {
   const b = e.target.closest('[data-vec]'); if (!b) return;
-  selected = { kind: 'vector', id: b.dataset.vec }; renderAll();
+  selected = { kind: 'vector', id: b.dataset.vec }; selectedVertex = null; renderAll(); revealDetail();
 });
+// Bring the details into view after selecting something (they sit lower in the side panel).
+function revealDetail() {
+  if (!selected) return;
+  requestAnimationFrame(() => $('detail-box').scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
+}
 $('unit').addEventListener('change', (e) => { project.settings.unit = e.target.value; save(); renderAll(); });
 
 function renderDetail() {
@@ -785,7 +812,7 @@ $('proj-open').addEventListener('change', async (e) => {
     frame = project.anchor ? makeFrame(project.anchor) : null;
     if (planURL) { URL.revokeObjectURL(planURL); planURL = null; }
     if (img && project.plan) { const b = await dataURLToBlob(img); await putBlob(`plan:${project.id}`, b); planURL = URL.createObjectURL(b); } else project.plan = null;
-    selected = null; save(); showPlan();
+    selected = null; selectedVertex = null; history.length = 0; save(); showPlan();
     if (project.view) map.jumpTo({ center: project.view.center, zoom: project.view.zoom });
     renderAll(); $('proj-status').textContent = `Opened ${file.name}.`;
   } catch { $('proj-status').textContent = 'That file is not a VDA project.'; }
@@ -796,17 +823,17 @@ $('proj-clear').addEventListener('click', async () => {
   clearArmed = false;
   await deleteBlob(`plan:${project.id}`);
   const view = project.view, basemap = project.basemap;
-  project = { ...blankProject(), view, basemap }; frame = null; selected = null;
+  project = { ...blankProject(), view, basemap }; frame = null; selected = null; selectedVertex = null; history.length = 0;
   if (planURL) { URL.revokeObjectURL(planURL); planURL = null; }
   save(); showPlan(); renderAll(); $('proj-status').textContent = 'Started a new project.';
 });
 
 // ---------- legend ----------
-$('legend').innerHTML = '<b>Worst-case impact speed</b>' + TEST_SPEEDS_KPH.map((t, i) => `<span><i style="background:${BAND_COLOURS[i]}"></i>≤ ${t} km/h</span>`).join('') + `<span><i style="background:${BAND_COLOURS[7]}"></i>&gt; 112 km/h</span>`;
+$('legend').innerHTML = '<b>Worst-case impact speed <em class="short">(km/h)</em></b>' + TEST_SPEEDS_KPH.map((t, i) => `<span><i style="background:${BAND_COLOURS[i]}"></i><em class="full">≤ ${t} km/h</em><em class="short">${t}</em></span>`).join('') + `<span><i style="background:${BAND_COLOURS[7]}"></i><em class="full">&gt; 112 km/h</em><em class="short">&gt;112</em></span>`;
 renderKey(); renderProject();
 
 // ---------- copy for report ----------
-const startText = (v) => (v.start === 'STANDING' ? 'standing start (from rest)' : v.start === 'ENTRY' ? `entry speed ${Math.round(conv(v.entryKph || 0))} ${unitName()}` : 'rolling start (already at top speed)');
+const startText = (v) => (v.start === 'STANDING' ? 'standing start (from rest)' : v.start === 'ENTRY' ? (v.entryKph > 0 ? `entry speed ${Math.round(conv(v.entryKph))} ${unitName()}` : 'entry speed not set, so treated as a standing start') : 'rolling start (already at top speed)');
 const titled = (t) => (project.title ? `${project.title} – ${t}` : t);
 function vectorTable(v, r) {
   return reportTable({
@@ -850,12 +877,12 @@ function renderShapeDetail(box, item) {
     }
   }
   facts.push(['Points', item.points.length]);
-  const title = k === 'osm' ? 'Building (OpenStreetMap)' : esc(item.name);
+  const title = k === 'osm' ? (item.wall ? `Wall or barrier (${esc(item.wall.replace('_', ' '))}, OpenStreetMap)` : 'Building (OpenStreetMap)') : esc(item.name);
   if (k === 'asset') buttons += '<button id="s-lop">Line of protection round this asset</button>';
   if (k === 'lop') buttons += `<label class="chk"><input type="checkbox" id="s-closed"${item.closed ? ' checked' : ''}> Closed loop</label>`;
   if (k === 'osm') {
     const ex = project.osmExcluded.includes(item.id);
-    buttons += `<button id="s-exclude">${ex ? 'Count it as an obstacle' : 'Not an obstacle'}</button><button id="s-asset">Make it the asset</button>`;
+    buttons += `<button id="s-exclude">${ex ? 'Count it as an obstacle' : 'Not an obstacle'}</button>${item.wall ? '' : '<button id="s-asset">Make it the asset</button>'}`;
   }
   if (k !== 'osm' && selectedVertex != null) buttons += `<button id="s-delpt">Delete point ${selectedVertex + 1}</button>`;
   if (k !== 'osm') buttons += `<button id="s-del" class="quiet">Delete ${k === 'lop' ? 'line' : k}</button>`;
@@ -880,16 +907,21 @@ $('ag-run').addEventListener('click', async () => {
   const keep = Math.min(50, Math.max(1, +$('ag-max').value || 10));
   const btn = $('ag-run'); btn.disabled = true;
   try {
-    if (!project.osm) {
-      $('ag-status').textContent = 'Loading buildings and roads first…';
-      const c = centroid(project.lops[0].points), ll = toLL(c);
-      await loadOSM({ lng: ll[0], lat: ll[1] });
-      if (!project.osm) $('ag-status').textContent = 'Map data could not be loaded, so only your own obstacles are used.';
+    // Map data must cover every line of protection plus the study radius.
+    const pts = project.lops.flatMap((l) => l.points);
+    const c = { x: (Math.min(...pts.map((q) => q.x)) + Math.max(...pts.map((q) => q.x))) / 2, y: (Math.min(...pts.map((q) => q.y)) + Math.max(...pts.map((q) => q.y))) / 2 };
+    const reach = Math.max(...pts.map((q) => dist(q, c))) + radius + 20;
+    if (!project.osm || dist(c, project.osm.centre) + reach > project.osm.radius) {
+      $('ag-status').textContent = 'Loading buildings and roads for the study area…';
+      const ll = toLL(c);
+      $('ag-radius').dataset.reach = String(Math.round(reach));
+      await loadOSM({ lng: ll[0], lat: ll[1] }, reach);
+      if (!project.osm || dist(c, project.osm.centre) + reach > project.osm.radius) $('ag-status').textContent = 'Map data could not be loaded for the whole study area, so results may miss buildings.';
     }
     $('ag-status').textContent = 'Searching…';
     await new Promise((r) => setTimeout(r, 30));
     const t0 = performance.now();
-    const res = generateVectors({
+    const res = await runSearch({
       lops: project.lops, assets: project.assets,
       obstacles: [...osmBuildings().map((b) => b.points), ...project.obstacles.map((o) => o.points)],
       roads: (project.osm?.roads || []).map((r) => r.points),
@@ -909,3 +941,18 @@ $('ag-run').addEventListener('click', async () => {
     $('ag-status').textContent = `The search failed: ${e.message}`;
   } finally { btn.disabled = false; }
 });
+
+// Run the search in a worker where possible, so the page stays responsive on slower devices.
+function runSearch(params) {
+  return new Promise((resolve, reject) => {
+    let w;
+    try { w = new Worker(new URL('./autogen-worker.js', import.meta.url), { type: 'module' }); } catch { resolve(generateVectors(params)); return; }
+    const fallback = () => { w.terminate(); try { resolve(generateVectors(params)); } catch (e) { reject(e); } };
+    w.onmessage = (e) => { w.terminate(); if (e.data.ok) resolve(e.data); else reject(new Error(e.data.error)); };
+    w.onerror = (e) => { e.preventDefault(); fallback(); };
+    w.postMessage(params);
+  });
+}
+
+// Test hook: only with ?debug in the address, so automated checks can find points on screen.
+if (new URLSearchParams(location.search).has('debug')) window.__vda = { map, project: () => project, toLL };
