@@ -75,6 +75,19 @@ export async function copyImage(blobOrPromise) {
   try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': await blobOrPromise })]); return true; } catch { return false; }
 }
 
+// Sections in NPSA HOVVA's entry order: starting at the asset, back to the start of the route.
+// `sections` is nearest-asset first (the engine's own order), so no reversing is needed.
+export function hovvaTable(sections, title) {
+  const name = { STRAIGHT: 'Straight', CURVE_LEFT: 'Left curve', CURVE_RIGHT: 'Right curve' };
+  const r1 = (n) => Math.round(n * 10) / 10;
+  return reportTable({
+    title: title ? `${title} – sections in HOVVA order (asset first)` : 'Sections in HOVVA order (asset first)', numericFrom: 2,
+    headers: ['No.', 'Type', 'Length (m)', 'Radius (m)', 'Note'],
+    rows: sections.map((s, i) => [i + 1, name[s.sType], r1(s.sLength), s.sType === 'STRAIGHT' ? '' : r1(s.radius), [i === 0 ? 'at the asset' : '', i === sections.length - 1 && sections.length > 1 ? 'start of route' : '', s.description || ''].filter(Boolean).join('; ')]),
+    notes: ['Left and right are the driver\'s left and right, driving towards the asset. Curve lengths are arc lengths.'],
+  });
+}
+
 // Show a short confirmation next to a copy button.
 export function flash(button, ok, okText = 'Copied', failText = 'Copy failed') {
   const old = button.dataset.label || button.textContent;

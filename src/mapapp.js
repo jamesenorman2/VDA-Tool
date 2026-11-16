@@ -4,7 +4,7 @@
 import { VEHICLES, KPH_PER_MPH, MASS_KG, TEST_SPEEDS_KPH, nextTestSpeed, buildRouteSpeeds, startArg } from './maths.js';
 import { VERSION } from './version.js';
 import { mountThemeToggle } from './theme.js';
-import { reportTable, copyRich, flash } from './copy.js';
+import { reportTable, copyRich, flash, hovvaTable } from './copy.js';
 import { newProject, newVector, resolveVector, pathLength } from './model.js';
 import { makeFrame } from './frames.js';
 import { planToLocal, localToPlan, scaleFromTwoPoints, rescale, checkError, measureOnPlan, fitSimilarity } from './calibrate.js';
@@ -705,7 +705,7 @@ function renderDetail() {
       return `<div class="bend"><span>Point ${b.point + 1}: ${info}</span><input type="number" min="0" step="any" data-bend="${b.point}" placeholder="Largest fit" aria-label="Fixed radius at point ${b.point + 1} in metres" value="${opt?.mode === 'fixed' ? opt.radius : ''}"></div>`;
     }).join('') + '<p class="hint">Leave a radius blank for the largest that fits (worst case). Type a radius to fix it.</p>';
   }
-  html += `<div class="btnrow"><button id="d-copy">Copy results for report</button><button id="d-calc">Open in route calculator</button><button id="d-del" class="quiet">Delete vector</button></div><p class="hint" id="d-calc-msg"></p>`;
+  html += `<div class="btnrow"><button id="d-copy">Copy results for report</button><button id="d-hovva" title="Copies this vector's sections starting at the asset, the order NPSA HOVVA uses">Copy for HOVVA</button><button id="d-calc">Open in route calculator</button><button id="d-del" class="quiet">Delete vector</button></div><p class="hint" id="d-calc-msg"></p>`;
   const focusId = document.activeElement?.id || document.activeElement?.dataset?.bend;
   box.innerHTML = html;
   if (focusId) (document.getElementById(focusId) || box.querySelector(`[data-bend="${focusId}"]`))?.focus();
@@ -720,6 +720,10 @@ function renderDetail() {
   };
   $('d-start').onchange = (e) => { v.start = e.target.value; save(); renderAll(); };
   if ($('d-entry')) $('d-entry').onchange = (e) => { const x = parseFloat(e.target.value); v.entryKph = x > 0 ? (project.settings.unit === 'MPH' ? x * KPH_PER_MPH : x) : 0; save(); renderAll(); };
+  $('d-hovva').onclick = async (e) => {
+    if (!r.sections?.length || r.errors.length) { flash(e.target, false, '', 'Fix the problems above first'); return; }
+    flash(e.target, await copyRich(hovvaTable(r.sections, `${project.title ? project.title + ' – ' : ''}${v.name}`)));
+  };
   $('d-copy').onclick = async (e) => {
     if (!r.speeds) { flash(e.target, false, '', 'Nothing to copy yet'); return; }
     flash(e.target, await copyRich(vectorTable(v, r)));

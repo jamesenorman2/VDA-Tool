@@ -1,7 +1,7 @@
 import { VEHICLES, KPH_PER_MPH, MAX_RADIUS, buildRouteSpeeds, chartSeries, validateSection, startArg } from './maths.js';
 import { VERSION } from './version.js';
 import { mountThemeToggle } from './theme.js';
-import { reportTable, copyRich, svgToPng, copyImage, flash } from './copy.js';
+import { reportTable, copyRich, svgToPng, copyImage, flash, hovvaTable } from './copy.js';
 import { buildSketch } from './sketch.js';
 import { parseQuickEntry } from './quickentry.js';
 
@@ -350,6 +350,7 @@ renderRows();
 update();
 
 // ---------- copy for report ----------
+$('copy-hovva').onclick = async (e) => flash(e.target, await copyRich(hovvaTable(state.sections, state.title)));
 const titled = (t) => (state.title ? `${state.title} – ${t}` : t);
 $('copy-summary').onclick = async (e) => {
   const sections = state.sections, r = buildRouteSpeeds(sections, START())[0];
