@@ -141,3 +141,11 @@ test('with no LoP chosen, a vector uses the first LoP it crosses along its lengt
   assert.equal(r.crossing.lopId, 'near');
   close(r.sections[0].sLength, 30);
 });
+
+test('a closed LoP also catches crossings on its closing edge', () => {
+  const p = newProject({ lops: [{ id: 'ring', closed: true, points: [P(0, 0), P(50, 0), P(50, 50), P(0, 50)] }] });
+  // Crosses only the closing edge (0,50)→(0,0).
+  const r = resolveVector(p, newVector({ source: 'drawn', points: [P(-40, 25), P(10, 25)] }));
+  assert.deepEqual(r.errors, []);
+  close(r.sections[0].sLength, 40);
+});

@@ -18,6 +18,9 @@ npm test       # unit tests for the maths and sketch geometry
 - `src/geometry/clip.js` – clip a vector at its first line-of-protection crossing; impact angle
 - `src/model.js` – project / vector model, migration of the old single-route state, vector → sections
 - `map.html`, `src/mapapp.js` – map assessment: basemap (MapTiler with a key, else OpenStreetMap), plan upload with two-point scale, check measurement and alignment, drawing of asset / line of protection / vectors, per-vector impact results, hand-off to the route calculator
+- `src/geometry/polygon.js` – polygon/polyline helpers: area, offsets (standoff lines), snapping, simplification
+- `src/autogen.js` – automatic attack-vector search: open ground, round building corners, along roads; obstacle-limited bend radii
+- `src/osm.js` – OpenStreetMap buildings and roads via the Overpass API
 - `src/frames.js` – local metric frame ↔ longitude/latitude
 - `src/calibrate.js` – plan placement, two-point scale, check error, similarity fit
 - `src/store.js` – localStorage project + IndexedDB plan images

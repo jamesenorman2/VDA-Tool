@@ -67,3 +67,24 @@ dl.facts dt { color: var(--muted); } dl.facts dd { margin: 0; font-variant-numer
 :root[data-theme="dark"] .maplibregl-ctrl button .maplibregl-ctrl-icon { filter: invert(1); }
 :root[data-theme="dark"] .maplibregl-ctrl-scale { background: #182029cc; color: var(--ink); border-color: var(--ink); }
 :root[data-theme="dark"] .maplibregl-ctrl-attrib { background: #182029cc; color: var(--muted); } :root[data-theme="dark"] .maplibregl-ctrl-attrib a { color: var(--muted); }
+#side h4 { margin: .4rem 0 0; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.inline.wrap { flex-wrap: wrap; align-items: center; }
+label.inl { display: inline-flex !important; align-items: center; gap: .3rem; }
+label.inl input { width: 4.5rem; }
+label.chk { display: inline-flex !important; align-items: center; gap: .3rem; font-size: .85rem; }
+.autogen { display: grid; gap: .4rem; padding: .5rem .6rem; border: 1px solid var(--line); border-radius: 6px; }
+#detail-box { padding: 0 1rem .8rem; }
+#detail-box:empty, #detail-box:has(#vec-detail:empty) { display: none; }
+.notes ul { margin: 0; padding-left: 1.1rem; font-size: .8rem; color: var(--muted); display: grid; gap: .3rem; }
+#drawbar { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(24px + env(safe-area-inset-bottom, 0px)); z-index: 5; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 4px 16px #0005; padding: .6rem .8rem; display: grid; gap: .4rem; width: min(440px, calc(100% - 32px)); box-sizing: border-box; font-size: 14px; }
+#drawbar .db-top { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; }
+#drawbar #db-measure { font-variant-numeric: tabular-nums; color: var(--muted); }
+#drawbar p { margin: 0; font-size: .8rem; color: var(--muted); }
+#drawbar button { padding: .45rem .9rem; font-size: .9rem; }
+#app { position: relative; }
+.seg-tag { background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font: 11px system-ui, sans-serif; font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; opacity: .92; }
+.badge { font-size: .7rem; padding: 0 .35rem; border-radius: 999px; border: 1px solid currentColor; margin-left: .3rem; }
+.badge.sugg { color: #e0a100; } .badge.acc { color: var(--ok); } .badge.rej { color: var(--muted); }
+#vec-list li.rejected button { opacity: .55; }
+.review { display: grid; gap: .4rem; padding: .5rem .6rem; border: 1px dashed #e0a100; border-radius: 6px; }
+@media (max-width: 760px) { #drawbar { bottom: calc(45% + 16px); } }
