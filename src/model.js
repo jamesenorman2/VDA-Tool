@@ -60,7 +60,7 @@ export function resolveVector(project, vector) {
   // A vector tied to one LoP uses it; otherwise the first LoP it crosses, measured along the vector.
   const lops = vector.lopId ? project.lops.filter((l) => l.id === vector.lopId) : project.lops;
   for (const lop of lops) {
-    const c = clipAtLop(points, lop.points);
+    const c = clipAtLop(points, lop.closed ? [...lop.points, lop.points[0]] : lop.points);
     if (c && (!crossing || pathLength(c.points) < pathLength(crossing.points))) crossing = { ...c, lopId: lop.id };
   }
   if (lops.length && !crossing) errors.push('This vector does not cross the line of protection');
