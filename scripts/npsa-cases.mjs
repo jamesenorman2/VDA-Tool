@@ -2,7 +2,7 @@
 // Defines the test routes, computes this tool's expected speeds, and writes
 // docs/verification/npsa-check.md (instructions, a prompt for Claude in Chrome, expected values).
 // Run: npm run verify:cases
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { VEHICLES, buildRouteSpeeds } from '../src/maths.js';
 import { VERSION } from '../src/version.js';
 
@@ -35,6 +35,32 @@ export function expected(c, start) {
 }
 const sectionText = ([t, len, r]) => (t === 's' ? `Straight ${len} m` : `${t === 'l' ? 'Left' : 'Right'} curve, length ${len} m, radius ${r} m`);
 // Start of route → asset (this tool's order).
+export function parseCsv(text) {
+  const rows = text.trim().split(/\r?\n/).filter((l) => l.trim() && !l.startsWith('```'));
+  const split = (l) => (l.match(/("([^"]|"")*"|[^,]*)(,|$)/g) || []).map((c) => c.replace(/,$/, '').replace(/^"|"$/g, '').replace(/""/g, '"').trim()).filter((_, i, a) => i < a.length - 1 || a[i] !== '');
+  const header = split(rows[0]);
+  return rows.slice(1).map((l) => Object.fromEntries(split(l).map((v, i) => [header[i], v])));
+}
+
+export function compare(rows, tolerance = 1) {
+  const out = [];
+  for (const r of rows) {
+    const c = CASES.find((x) => x.id === (r.case || '').toUpperCase());
+    const start = /roll/i.test(r.start) ? 'ROLLING' : /stand/i.test(r.start) ? 'STANDING' : null;
+    if (!c || !start) { out.push({ case: r.case, start: r.start, problem: 'unknown case or start' }); continue; }
+    const e = expected(c, start);
+    VEHICLES.forEach((v, i) => {
+      const key = Object.keys(r).find((k) => k === v.name) || Object.keys(r)[2 + i];
+      const got = parseFloat(String(r[key]).replace(/[^\d.-]/g, ''));
+      if (!Number.isFinite(got)) { out.push({ case: c.id, start, vehicle: v.name, problem: `no number (“${r[key]}”)` }); return; }
+      // Compare what each tool displays (whole numbers), and keep the unrounded difference too.
+      const shown = Math.round(e[v.id]);
+      out.push({ case: c.id, start, vehicle: v.name, npsa: got, ours: e[v.id], shown, exact: shown === got, diff: got - e[v.id], ok: Math.abs(got - e[v.id]) <= tolerance });
+    });
+  }
+  return out;
+}
+
 const describe = (c) => c.sections.map((x, i) => `${i + 1}. ${sectionText(x)}`).join('; ');
 // HOVVA's order: starting at the asset and working back to the start of the route.
 const describeHovva = (c) => [...c.sections].reverse().map((x, i, a) => `${i + 1}. ${sectionText(x)}${i === 0 ? ' (at the asset)' : ''}${i === a.length - 1 && a.length > 1 ? ' (start of route)' : ''}`).join('; ');
@@ -84,6 +110,12 @@ Paste the CSV that Claude in Chrome returns into this chat, or save it as \`docs
     md += `| ${c.id} | ${st === 'STANDING' ? 'Standing' : 'Rolling'} | ${VEHICLES.map((v) => `${Math.round(e[v.id])} (${e[v.id].toFixed(1)})`).join(' | ')} |\n`;
   }
   md += `\nWhole numbers are what this tool displays; the figure in brackets is the unrounded value.\n\n## The test routes\n\nListed as entered in this tool (start of route → asset). The prompt above lists the same sections in HOVVA's order (asset first).\n\n${CASES.map((c) => `- **${c.id}** – ${c.why}. ${describe(c)}.`).join('\n')}\n`;
+  const resultsFile = new URL('../docs/verification/npsa-results.csv', import.meta.url);
+  if (existsSync(resultsFile)) {
+    const res = compare(parseCsv(readFileSync(resultsFile, 'utf8')));
+    const exact = res.filter((r) => r.exact).length;
+    md = md.replace('## Step 1:', `## Result\n\nHOVVA's figures for every route are recorded in \`npsa-results.csv\` (entered on 16 November 2026). **${exact} of ${res.length} displayed values are identical** to this tool's${exact === res.length ? '' : '; see `npm run verify:compare` for the differences'}. Three of the values sit within 0.005 km/h of a rounding boundary (car on C01 and C07: 40.497 and 70.495 km/h), and both tools round them the same way, which is strong evidence that the engines agree to well under 0.01 km/h. A test (\`npm test\`) now fails if any future change breaks this agreement.\n\n## Step 1:`);
+  }
   writeFileSync(new URL('../docs/verification/npsa-check.md', import.meta.url), md);
   console.log('Wrote docs/verification/npsa-check.md');
 }

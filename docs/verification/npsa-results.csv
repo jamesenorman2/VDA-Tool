@@ -1,0 +1,27 @@
+case,start,"1.5t Car (M1)","2.5t 4x4 / Pick-up (N1G)","3.5t Flatbed (N1)","7.5t Two-axle rigid (N2)","18t Two-axle rigid (N3)","30t Four-axle rigid (N3)"
+C01,standing,40,34,32,25,19,19
+C01,rolling,125,97,92,80,64,66
+C02,standing,59,49,48,36,29,29
+C02,rolling,125,97,92,80,64,66
+C03,standing,74,62,59,46,38,37
+C03,rolling,125,97,92,80,64,66
+C04,standing,106,84,80,68,55,55
+C04,rolling,125,97,92,80,64,66
+C05,standing,125,97,92,80,64,66
+C05,rolling,125,97,92,80,64,66
+C06,standing,30,26,29,27,23,21
+C06,rolling,30,26,29,27,26,21
+C07,standing,70,59,60,52,48,41
+C07,rolling,70,59,60,52,48,41
+C08,standing,95,78,81,69,57,56
+C08,rolling,95,78,81,75,64,59
+C09,standing,101,86,83,70,57,57
+C09,rolling,101,86,92,80,64,66
+C10,standing,99,79,75,63,51,51
+C10,rolling,119,97,92,80,64,66
+C11,standing,69,58,57,48,42,38
+C11,rolling,69,58,57,48,42,38
+C12,standing,91,77,79,69,59,56
+C12,rolling,91,77,79,69,59,56
+C13,standing,52,45,50,47,45,36
+C13,rolling,52,45,50,47,45,36
