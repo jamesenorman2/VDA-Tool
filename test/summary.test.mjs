@@ -43,3 +43,15 @@ test('each section is one continuous stretch of the line', () => {
     for (const s of splitLop(lop)) for (let k = 1; k < s.edges.length; k++) assert.equal(s.edges[k], (s.edges[k - 1] + 1) % n, JSON.stringify(s.edges));
   }
 });
+
+test('test speeds respect ISO 22343-1 Table 5: trucks up to 80, flatbed up to 96, car and pick-up up to 112', async () => {
+  const { nextTestSpeed, testSpeedText } = await import('../src/maths.js');
+  assert.equal(nextTestSpeed(80.3, 'SEVENTRIGID'), null); // 7.5 t at its top speed: no truck test above 80
+  assert.equal(testSpeedText(80.3, 'SEVENTRIGID'), 'above 80');
+  assert.equal(nextTestSpeed(64.1, 'EIGHTEENTRIGID'), 80);
+  assert.equal(nextTestSpeed(92, 'FLATBED'), 96);
+  assert.equal(nextTestSpeed(97, 'FLATBED'), null);
+  assert.equal(nextTestSpeed(97.4, 'PICKUP'), 112);
+  assert.equal(nextTestSpeed(124.9, 'CAR'), null);
+  assert.equal(draftDesignation('THIRTYTRIGID', null), 'no test above 80 km/h');
+});

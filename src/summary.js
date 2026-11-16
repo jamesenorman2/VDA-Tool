@@ -4,7 +4,7 @@
 // "section B needs a barrier tested to 64 km/h". For each section the governing vector is the
 // firm (accepted or drawn) vector with the highest impact speed crossing it.
 
-import { VEHICLES, MASS_KG, nextTestSpeed } from './maths.js';
+import { VEHICLES, MASS_KG, MAX_TEST_SPEED_KPH, nextTestSpeed } from './maths.js';
 
 const heading = (a, b) => Math.atan2(b.y - a.y, b.x - a.x);
 const turn = (h0, h1) => { let d = h1 - h0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return Math.abs(d); };
@@ -12,7 +12,7 @@ const turn = (h0, h1) => { let d = h1 - h0; while (d > Math.PI) d -= 2 * Math.PI
 // Vehicle class codes and nominal masses used in draft rating designations. The mapping of the
 // tool's classes to each standard's test vehicles has NOT been confirmed: label output as draft.
 export const CLASS_CODE = { CAR: 'M1', PICKUP: 'N1G', FLATBED: 'N1', SEVENTRIGID: 'N2', EIGHTEENTRIGID: 'N3', THIRTYTRIGID: 'N3' };
-export const draftDesignation = (classId, testKph) => (testKph ? `V/${MASS_KG[classId]}[${CLASS_CODE[classId]}]/${testKph}/90` : 'above tested speeds');
+export const draftDesignation = (classId, testKph) => (testKph ? `V/${MASS_KG[classId]}[${CLASS_CODE[classId]}]/${testKph}/90` : `no test above ${MAX_TEST_SPEED_KPH[classId]} km/h`);
 
 // Split a LoP into sections at its corners. Main sides are the long edges (at least 8 m and a
 // fifth of the longest); consecutive main sides within 35° of each other form one section. Short
@@ -102,7 +102,7 @@ export function requiredProtection(lops, vectors) {
     s.speeds = {}; s.tests = {};
     for (const v of VEHICLES) {
       const m = s.firm.length ? Math.max(...s.firm.map((f) => f.speeds[v.id])) : null;
-      s.speeds[v.id] = m; s.tests[v.id] = m == null ? null : nextTestSpeed(m);
+      s.speeds[v.id] = m; s.tests[v.id] = m == null ? null : nextTestSpeed(m, v.id);
     }
     const g = s.firm.length ? s.firm.reduce((a, b) => (b.worst > a.worst ? b : a)) : null;
     s.worst = g ? g.worst : null;

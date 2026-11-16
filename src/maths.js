@@ -154,4 +154,11 @@ export function validateSection(s) {
 export const MASS_KG = { CAR: 1500, PICKUP: 2500, FLATBED: 3500, SEVENTRIGID: 7500, EIGHTEENTRIGID: 18000, THIRTYTRIGID: 30000 };
 // Impact test speeds (km/h) used by ISO 22343 / IWA 14-1 / PAS 68 test series.
 export const TEST_SPEEDS_KPH = [16, 32, 48, 64, 80, 96, 112];
-export const nextTestSpeed = (kph) => TEST_SPEEDS_KPH.find((t) => t >= kph - 1e-9) ?? null;
+// Highest impact test speed that exists for each class (ISO 22343-1:2023 Table 5): cars and 4x4
+// pick-ups are tested up to 112 km/h, N1 flatbeds up to 96 km/h, N2 and N3 trucks up to 80 km/h.
+export const MAX_TEST_SPEED_KPH = { CAR: 112, PICKUP: 112, FLATBED: 96, SEVENTRIGID: 80, EIGHTEENTRIGID: 80, THIRTYTRIGID: 80 };
+// Lowest test speed at or above the impact speed that exists for the class, or null if the impact
+// speed is above every test speed available for that class.
+export const nextTestSpeed = (kph, classId) => TEST_SPEEDS_KPH.find((t) => t >= kph - 1e-9 && t <= (MAX_TEST_SPEED_KPH[classId] ?? 112)) ?? null;
+// Text for tables: the test speed, or "above 80" etc. when no test exists for the class.
+export const testSpeedText = (kph, classId) => { const t = nextTestSpeed(kph, classId); return t ? String(t) : `above ${MAX_TEST_SPEED_KPH[classId] ?? 112}`; };

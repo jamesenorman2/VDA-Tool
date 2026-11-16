@@ -1,7 +1,7 @@
 // Map assessment page: basemap, plan overlay with calibration, drawing of asset / line of
 // protection / vectors, and per-vector impact results from the existing engine.
 /* global maplibregl */
-import { VEHICLES, KPH_PER_MPH, MASS_KG, TEST_SPEEDS_KPH, nextTestSpeed, buildRouteSpeeds, startArg } from './maths.js';
+import { VEHICLES, KPH_PER_MPH, MASS_KG, TEST_SPEEDS_KPH, MAX_TEST_SPEED_KPH, nextTestSpeed, testSpeedText, buildRouteSpeeds, startArg } from './maths.js';
 import { VERSION } from './version.js';
 import { mountThemeToggle } from './theme.js';
 import { reportTable, copyRich, flash, hovvaTable } from './copy.js';
@@ -822,8 +822,8 @@ function renderDetail() {
   if (r.speeds) {
     html += `<dl class="facts"><dt>Run-up</dt><dd>${r.runUp.toFixed(1)} m</dd><dt>Impact angle</dt><dd>${r.crossing.angle.toFixed(0)}° (90° = head-on)</dd></dl>
     <table><thead><tr><th>Vehicle</th><th>${unitName()}</th><th>kJ</th><th>Test speed</th></tr></thead><tbody>${VEHICLES.map((c) => {
-      const s = r.speeds[c.id], ke = 0.5 * MASS_KG[c.id] * (s / 3.6) ** 2 / 1000, t = nextTestSpeed(s);
-      return `<tr><td>${esc(c.name)}</td><td>${Math.round(conv(s))}</td><td>${Math.round(ke).toLocaleString()}</td><td>${t ? `${t} km/h` : '&gt; 112 km/h'}</td></tr>`;
+      const s = r.speeds[c.id], ke = 0.5 * MASS_KG[c.id] * (s / 3.6) ** 2 / 1000, t = nextTestSpeed(s, c.id);
+      return `<tr><td>${esc(c.name)}</td><td>${Math.round(conv(s))}</td><td>${Math.round(ke).toLocaleString()}</td><td>${t ? `${t} km/h` : `<span class="bad" title="No ISO 22343-1 test exists above ${MAX_TEST_SPEED_KPH[c.id]} km/h for this vehicle class">above ${MAX_TEST_SPEED_KPH[c.id]}</span>`}</td></tr>`;
     }).join('')}</tbody></table>
     <p class="hint">Test speed is the lowest standard impact test speed at or above the impact speed. Full ratings per standard come once the vehicle mapping is confirmed.</p>`;
   }
@@ -982,7 +982,7 @@ function vectorTable(v, r) {
   return reportTable({
     title: titled(`Vector ${v.name}: impact at the line of protection`), numericFrom: 1,
     headers: ['Vehicle', `Impact speed (${unitName()})`, 'Impact energy (kJ)', 'Next test speed (km/h)'],
-    rows: VEHICLES.map((c) => { const sp = r.speeds[c.id]; const t = nextTestSpeed(sp); return [c.name, Math.round(conv(sp)), Math.round(0.5 * MASS_KG[c.id] * (sp / 3.6) ** 2 / 1000), t ?? '> 112']; }),
+    rows: VEHICLES.map((c) => { const sp = r.speeds[c.id]; return [c.name, Math.round(conv(sp)), Math.round(0.5 * MASS_KG[c.id] * (sp / 3.6) ** 2 / 1000), testSpeedText(sp, c.id)]; }),
     notes: [`Run-up ${r.runUp.toFixed(1)} m; impact angle ${r.crossing.angle.toFixed(0)}° (90° = head-on); ${startText(v)}.`, ...(project.marking ? [project.marking] : [])],
   });
 }
@@ -1188,7 +1188,7 @@ function renderReq() {
   $('req-count').textContent = sections.length ? `${sections.length} section${sections.length === 1 ? '' : 's'}` : '';
   if (!sections.length) { $('req-table').innerHTML = '<p class="hint">Add a line of protection to see what each section of it must resist.</p>'; return; }
   const sel = selected?.kind === 'lop' ? selected.id : null;
-  $('req-table').innerHTML = `<table><thead><tr><th>Section</th><th>Governing vector</th>${VEHICLES.map((v) => `<th title="${esc(v.name)}">${esc(v.name.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>${sections.map((x) => `<tr data-sec="${x.label}" class="${x.lopId === sel ? 'sel' : ''}"><td><b>${x.label}</b> <small>${Math.round(x.length)} m</small></td><td>${x.governing ? `${esc(x.governing.name)} <small>${Math.round(x.governing.angle)}°</small>` : `<small>none yet</small>`}${x.pending ? ` <small class="bad" title="Suggestions crossing this section still need reviewing">${x.pending} to review</small>` : ''}</td>${VEHICLES.map((v) => `<td>${x.speeds[v.id] == null ? '–' : `${Math.round(conv(x.speeds[v.id]))}<br><small>${x.tests[v.id] ? `test ${x.tests[v.id]}` : '&gt;112'}</small>`}</td>`).join('')}</tr>`).join('')}</tbody></table>
+  $('req-table').innerHTML = `<table><thead><tr><th>Section</th><th>Governing vector</th>${VEHICLES.map((v) => `<th title="${esc(v.name)}">${esc(v.name.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>${sections.map((x) => `<tr data-sec="${x.label}" class="${x.lopId === sel ? 'sel' : ''}"><td><b>${x.label}</b> <small>${Math.round(x.length)} m</small></td><td>${x.governing ? `${esc(x.governing.name)} <small>${Math.round(x.governing.angle)}°</small>` : `<small>none yet</small>`}${x.pending ? ` <small class="bad" title="Suggestions crossing this section still need reviewing">${x.pending} to review</small>` : ''}</td>${VEHICLES.map((v) => `<td>${x.speeds[v.id] == null ? '–' : `${Math.round(conv(x.speeds[v.id]))}<br><small>${x.tests[v.id] ? `test ${x.tests[v.id]}` : `<span class="bad">above ${MAX_TEST_SPEED_KPH[v.id]}</span>`}</small>`}</td>`).join('')}</tr>`).join('')}</tbody></table>
     <p class="hint">Impact speeds in ${unitName()}; "test" is the lowest standard impact test speed (km/h) at or above it. Angles are the governing vector's impact angle (90° = head-on).</p>`;
   $('req-table').querySelectorAll('tr[data-sec]').forEach((tr) => { tr.onclick = () => { const x = sections.find((q) => q.label === tr.dataset.sec); selected = { kind: 'lop', id: x.lopId }; selectedVertex = null; const ll = toLL(midpointOf(x.points)); map.easeTo({ center: ll }); renderAll(); }; });
 }
@@ -1200,7 +1200,7 @@ function reqTable() {
   return reportTable({
     title: `${project.title ? project.title + ' – ' : ''}Required protection by section`, numericFrom: 2,
     headers: ['Section', 'Line of protection', 'Length (m)', 'Governing vector', 'Impact angle (°)', ...VEHICLES.map((v) => `${v.name}: impact ${unitName()} (test km/h)`)],
-    rows: sections.map((x) => [x.label, x.lopName, Math.round(x.length), x.governing ? x.governing.name : 'none', x.governing ? Math.round(x.governing.angle) : '', ...VEHICLES.map((v) => (x.speeds[v.id] == null ? '' : `${Math.round(conv(x.speeds[v.id]))} (${x.tests[v.id] ?? '>112'})`))]),
+    rows: sections.map((x) => [x.label, x.lopName, Math.round(x.length), x.governing ? x.governing.name : 'none', x.governing ? Math.round(x.governing.angle) : '', ...VEHICLES.map((v) => (x.speeds[v.id] == null ? '' : `${Math.round(conv(x.speeds[v.id]))} (${x.tests[v.id] ?? `above ${MAX_TEST_SPEED_KPH[v.id]}`})`))]),
     notes: ['Figures come from the fastest accepted or drawn vector crossing each section. Test speed is the lowest standard impact test speed at or above the impact speed.', ...(project.marking ? [project.marking] : [])],
   });
 }
