@@ -5,7 +5,8 @@ import { VEHICLES, KPH_PER_MPH, MASS_KG, MAX_TEST_SPEED_KPH, testSpeedText, buil
 import { resolveVector, pathLength } from './model.js';
 import { requiredProtection, isoDesignation, ISO_CLASS } from './summary.js';
 import { VERSION } from './version.js';
-import { loadJSON, getBlob } from './store.js';
+import { loadJSON, getBlob, putBlob, deleteBlob } from './store.js';
+import { fillWordTemplate } from './wordtemplate.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -232,16 +233,47 @@ async function main() {
   $('mark-top').textContent = mark; $('mark-bottom').textContent = mark;
   await renderHTML(B);
   $('print').onclick = () => window.print();
+  // House template: kept in this browser only (IndexedDB), never uploaded anywhere.
+  const TPL = 'word-template';
+  const showTpl = async () => {
+    const t = await getBlob(TPL);
+    $('tpl-state').textContent = t ? `Template: ${t.name || 'Word template'}` : 'No template: plain layout';
+    $('tpl-remove').hidden = !t;
+  };
+  $('tpl-file').onchange = async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    if (!/\.docx$/i.test(f.name)) { $('status').textContent = 'Choose a Word .docx file.'; return; }
+    await putBlob(TPL, new File([f], f.name, { type: f.type }));
+    $('status').textContent = `Template "${f.name}" saved in this browser. The Word download now uses its page layout, header, footer and styles, without its front or contents pages.`;
+    showTpl();
+  };
+  $('tpl-remove').onclick = async () => { await deleteBlob(TPL); $('status').textContent = 'Template removed.'; showTpl(); };
+  showTpl();
+  const loadJsZip = () => (window.JSZip ? Promise.resolve() : new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'vendor/jszip-3.10.1/jszip.min.js'; s.onload = res; s.onerror = () => rej(new Error('Could not load the zip library')); document.head.appendChild(s); }));
   $('docx').onclick = async () => {
-    if (!window.docx) { $('status').textContent = 'The Word library did not load.'; return; }
     $('status').textContent = 'Building the Word document…';
     try {
-      const blob = await buildDocx(B, project);
+      const tpl = await getBlob(TPL);
+      let blob, extra = [];
+      if (tpl) {
+        await loadJsZip();
+        const d = project.details || {}, last = (project.issues || [])[project.issues?.length - 1];
+        ({ blob, notes: extra } = await fillWordTemplate(tpl, B, {
+          title: project.title || 'Vehicle dynamics assessment', subtitle: 'Vehicle dynamics assessment for hostile vehicle mitigation',
+          client: d.client, site: d.site, date: d.date, marking: [project.marking, d.handling].filter(Boolean).join(' – '),
+          assessor: d.assessor, reviewer: d.reviewer, issues: project.issues || [], locked: !!project.locked,
+          reference: last ? `Version ${last.n}${project.locked ? '' : ' (draft revision)'}` : 'Draft',
+        }));
+      } else {
+        if (!window.docx) { $('status').textContent = 'The Word library did not load.'; return; }
+        blob = await buildDocx(B, project);
+      }
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `${(project.title || 'vda-assessment').replace(/[^\w.-]+/g, '-')}${project.locked && project.issues?.length ? `-v${project.issues.length}` : '-draft'}.docx`;
       a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-      $('status').textContent = 'Word document downloaded. It uses a plain default layout; send your house template to have it used instead.';
+      $('status').textContent = (await getBlob(TPL)) ? `Word document downloaded in your template's page layout and styles. Word may ask to update fields when it opens: choose Yes so the header and footer show this assessment.${extra.length ? ' ' + extra.join(' ') : ''}` : 'Word document downloaded in the plain layout. Use "Word template…" to use your own.';
     } catch (e) { $('status').textContent = `Could not build the Word document: ${e.message}`; }
   };
 }

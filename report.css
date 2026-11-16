@@ -8,6 +8,10 @@ body { margin: 0; background: #e5e7eb; color: var(--ink); font: 10.5pt/1.45 "Seg
 .toolbar button { font: inherit; padding: .4rem .8rem; border-radius: 4px; border: 1px solid #fff8; background: transparent; color: #fff; cursor: pointer; }
 .toolbar button.primary { background: #fff; color: var(--head); border-color: #fff; font-weight: 600; }
 .toolbar .status { width: 100%; font-size: .85rem; opacity: .9; }
+.toolbar .tbtn { font: inherit; padding: .4rem .8rem; border-radius: 4px; border: 1px solid #fff8; cursor: pointer; }
+.toolbar .tbtn input { display: none; }
+.toolbar .tbtn:focus-within { outline: 2px solid #fff; }
+.toolbar .tpl-state { font-size: .85rem; opacity: .9; }
 .toolbar .status:empty { display: none; }
 main { max-width: 210mm; margin: 1rem auto; background: #fff; padding: 18mm 16mm; box-shadow: 0 2px 12px #0002; }
 @media (max-width: 800px) { main { margin: 0; padding: 16px; box-shadow: none; } }

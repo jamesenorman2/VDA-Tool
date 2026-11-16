@@ -12,6 +12,9 @@
   <span class="grow"></span>
   <button id="print" class="primary">Print or save as PDF</button>
   <button id="docx">Download Word</button>
+  <label class="tbtn" title="Use your own Word template (.docx) for the Word download. It is kept in this browser only.">Word template… <input id="tpl-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>
+  <span id="tpl-state" class="tpl-state"></span>
+  <button id="tpl-remove" hidden>Remove template</button>
   <span id="status" class="status" aria-live="polite"></span>
 </div>
 <div class="marking-top" id="mark-top"></div>
