@@ -121,7 +121,7 @@ function buildBlocks(p, A, mapImage) {
     'Braking into a bend is instant and the bend speed is held through it.',
     'Grass, verges, footways and kerbs are treated as drivable at road grip, which overstates speed there.',
     'Vehicle width is not modelled for drawn vectors.',
-    'The acceleration curves are empirical fits; the results are only as good as their source data. The engine is designed to match the NPSA HOVVA tool and can be checked against it with the verification pack supplied with the tool.',
+    'The acceleration curves are empirical fits; the results are only as good as their source data. The engine has been verified against the NPSA HOVVA tool: all 156 test values (13 routes, standing and rolling starts, six vehicle classes) were identical as displayed (16 November 2026).',
     'Missing or out-of-date buildings in OpenStreetMap change the results; the assessor should confirm the site on the ground.',
     'Barrier designations are drafts until the vehicle class mapping to each standard is confirmed.',
     'These results support, but do not replace, a competent specialist assessment.',

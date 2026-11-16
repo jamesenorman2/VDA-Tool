@@ -91,3 +91,11 @@ test('HOVVA copy lists sections from the asset back to the start', async () => {
   assert.match(lines[3], /^2\tRight curve\t40\t25\t$/);
   assert.match(lines[4], /^3\tStraight\t100\t\tstart of route$/);
 });
+
+test('parity with NPSA HOVVA: all 156 recorded values are identical as displayed', async () => {
+  const fs = await import('node:fs');
+  const { parseCsv, compare } = await import('../scripts/compare-npsa.mjs');
+  const res = compare(parseCsv(fs.readFileSync(new URL('../docs/verification/npsa-results.csv', import.meta.url), 'utf8')));
+  assert.equal(res.length, 156);
+  assert.deepEqual(res.filter((r) => !r.exact).map((r) => `${r.case} ${r.start} ${r.vehicle}`), []);
+});
