@@ -97,3 +97,13 @@ label.chk { display: inline-flex !important; align-items: center; gap: .3rem; fo
   #legend .full { display: none; } #legend .short { display: inline; }
   #legend span { gap: .2rem; } #legend i { width: 10px; height: 6px; }
 }
+.asset-tag { background: #3b82f6; color: #fff; font: 600 12px system-ui, sans-serif; padding: 2px 8px; border-radius: 999px; border: 2px solid var(--surface); box-shadow: 0 1px 4px #0006; white-space: nowrap; cursor: pointer; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.asset-tag.sel { outline: 2px solid #e0a100; outline-offset: 1px; }
+#legend .key { display: grid; gap: 2px; margin-bottom: .3rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
+#legend .key span { display: flex; align-items: center; gap: .4rem; }
+#legend .key i { width: 18px; height: 10px; border-radius: 2px; }
+#legend i.k-asset { background: repeating-linear-gradient(-45deg, #3b82f6 0 2px, #3b82f633 2px 5px); outline: 2px solid #3b82f6; outline-offset: -2px; }
+#legend i.k-lop { height: 4px; background: repeating-linear-gradient(90deg, #e63946 0 6px, #fff 6px 8px); }
+#legend i.k-obs { background: #6b728080; border: 1px solid #6b7280; }
+@media (max-width: 760px) { #legend .key { display: none; } }
+.drawing .asset-tag { pointer-events: none; }
