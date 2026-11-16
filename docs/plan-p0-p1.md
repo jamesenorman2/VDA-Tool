@@ -1,5 +1,7 @@
 # Build plan: Phase 0 and Phase 1
 
+**Status (v0.8.0):** Phase 0 and Phase 1 are built. Two inputs are still needed from the owner: the Word house template, and confirmation of the vehicle-class mapping per standard (designations are marked draft until then). Phase 2 automatic vector search is also built (open ground, round corners, roads). Not started: barrier lines with a gap check, sensitivity bands, gradients.
+
 This plan follows [spec v0.2](spec-map-attack-vectors.md). Each work package (WP) is a reviewable pull request with its own tests. The follow-up questions in spec §13 are answered; the only thing still awaited is the Word template file.
 
 The app is deployed as a **static website on Vercel** (vda-tool.vercel.app, auto-deployed from `main`). There is no server, a project's data stays in the browser, and the MapTiler key is kept in browser settings, restricted to the site's address.

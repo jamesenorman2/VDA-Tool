@@ -21,6 +21,9 @@ npm test       # unit tests for the maths and sketch geometry
 - `src/geometry/polygon.js` – polygon/polyline helpers: area, offsets (standoff lines), snapping, simplification
 - `src/autogen.js` – automatic attack-vector search: open ground, round building corners, along roads; obstacle-limited bend radii
 - `src/osm.js` – OpenStreetMap buildings and roads via the Overpass API
+- `src/summary.js` – lines of protection split into lettered sections; required protection per section; draft rating designations
+- `report.html`, `src/report.js` – assessment report built from the map project: printable (save as PDF) and Word download (docx)
+- `vendor/pdfjs-3.11.174/`, `vendor/docx-8.5.0/` – PDF plan reading and Word export
 - `src/frames.js` – local metric frame ↔ longitude/latitude
 - `src/calibrate.js` – plan placement, two-point scale, check error, similarity fit
 - `src/store.js` – localStorage project + IndexedDB plan images

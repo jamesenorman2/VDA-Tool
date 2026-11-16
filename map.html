@@ -16,6 +16,12 @@
       <nav><a href="index.html">Route calculator →</a><button id="theme" type="button"></button></nav>
     </header>
 
+    <p id="lock-banner" class="locked-banner" hidden></p>
+    <section id="checklist" aria-label="Assessment checklist">
+      <div class="ck-head"><b>Assessment checklist</b><span id="ck-score" class="pill"></span></div>
+      <ol id="check-items"></ol>
+    </section>
+
     <details id="sec-map" open>
       <summary>Map</summary>
       <div class="body">
@@ -45,7 +51,12 @@
     <details id="sec-plan" open>
       <summary>Site plan</summary>
       <div class="body">
-        <label class="file">Upload plan (PNG or JPG) <input id="plan-file" type="file" accept="image/png,image/jpeg"></label>
+        <label class="file">Upload plan (PDF, PNG or JPG) <input id="plan-file" type="file" accept="application/pdf,image/png,image/jpeg"></label>
+        <div id="pdf-pick" class="inline wrap" hidden>
+          <label class="inl">Page <select id="pdf-page" aria-label="PDF page"></select></label>
+          <button id="pdf-use" class="primary">Use this page</button>
+        </div>
+        <p class="hint" id="plan-status"></p>
         <div id="plan-tools" hidden>
           <label>Opacity <input id="plan-opacity" type="range" min="0" max="1" step="0.05" value="0.7"></label>
           <div class="btnrow">
@@ -119,10 +130,26 @@
 
     <section id="detail-box" aria-live="polite"><div id="vec-detail"></div></section>
 
-    <details id="sec-project">
-      <summary>Project</summary>
+    <details id="sec-req" open>
+      <summary>Required protection <span id="req-count" class="pill"></span></summary>
       <div class="body">
-        <label>Title <input id="title" maxlength="80"></label>
+        <p class="hint">Each line of protection is split into lettered sections at its corners. A section's figures come from the fastest accepted or drawn vector crossing it.</p>
+        <div id="req-table" class="tablewrap"></div>
+        <button id="copy-req" type="button">Copy for report</button>
+      </div>
+    </details>
+
+    <details id="sec-project">
+      <summary>Project and report</summary>
+      <div class="body">
+        <label>Assessment title <input id="title" maxlength="80"></label>
+        <label>Site name and address <input id="p-site" maxlength="160"></label>
+        <label>Client <input id="p-client" maxlength="120"></label>
+        <div class="inline wrap two">
+          <label>Assessor <input id="p-assessor" maxlength="80"></label>
+          <label>Reviewer <input id="p-reviewer" maxlength="80"></label>
+        </div>
+        <label>Assessment date <input id="p-date" type="date"></label>
         <label>Marking
           <select id="marking">
             <option value="">None</option>
@@ -131,6 +158,16 @@
             <option value="CUSTOM">Client-specific…</option>
           </select></label>
         <input id="marking-custom" placeholder="Client marking" hidden aria-label="Client-specific marking">
+        <label>Handling statement (printed on the report) <input id="p-handling" maxlength="200" placeholder="e.g. Not to be shared beyond the project team"></label>
+        <label>Notes for the report <textarea id="p-notes" rows="3" maxlength="2000"></textarea></label>
+        <button id="report" class="primary">Create report</button>
+        <p class="hint">Opens a printable report (save it as PDF from the print dialog) with a Word download.</p>
+        <h4>Versions</h4>
+        <div id="issues"></div>
+        <div class="btnrow">
+          <button id="issue">Issue this version</button>
+          <button id="unlock" hidden>Unlock to revise</button>
+        </div>
         <div class="btnrow">
           <button id="proj-save">Download project</button>
           <label class="file buttonlike">Open project <input id="proj-open" type="file" accept=".json,application/json"></label>
