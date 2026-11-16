@@ -149,3 +149,22 @@ test('a closed LoP also catches crossings on its closing edge', () => {
   assert.deepEqual(r.errors, []);
   close(r.sections[0].sLength, 40);
 });
+
+test('speed-limit points: a forced stop half way equals a standing start from there', async () => {
+  const { applyCaps } = await import('../src/model.js');
+  const route = [{ sType: 'STRAIGHT', sLength: 200, radius: 150 }]; // nearest-asset first
+  const capped = applyCaps(route, [{ at: 120, kph: 0 }]);
+  assert.deepEqual(capped.map((s) => [s.sLength, s.capAfter]), [[80, undefined], [120, 0]]);
+  assert.deepEqual(speedsAtAsset(capped, 'ROLLING'), speedsAtAsset([{ sType: 'STRAIGHT', sLength: 80, radius: 150 }], 'STANDING'));
+  // A 20 km/h limit at a section boundary caps that section's end.
+  const two = applyCaps([{ sType: 'STRAIGHT', sLength: 50 }, { sType: 'CURVE_LEFT', sLength: 30, radius: 40 }], [{ at: 30, kph: 20 }]);
+  assert.equal(two[1].capAfter, 20);
+});
+
+test('speed-limit point on a drawn vector is placed by projecting onto the route', () => {
+  const p = newProject({ lops: [{ id: 'l', points: [P(150, -50), P(150, 50)] }] });
+  const v = newVector({ source: 'drawn', points: [P(0, 0), P(160, 0)], caps: [{ point: P(60, 3), kph: 0 }] });
+  const r = resolveVector(p, v);
+  close(r.caps[0].at, 60, 1e-6);
+  assert.deepEqual(speedsAtAsset(r.sections, 'ROLLING'), speedsAtAsset([{ sType: 'STRAIGHT', sLength: 90, radius: 150 }], 'STANDING'));
+});

@@ -67,10 +67,62 @@ export function resolveVector(project, vector) {
   if (crossing) points = crossing.points;
   try {
     const r = polylineToSections(points, vector.vertexOptions || []);
-    return { sections: r.sections, pieces: r.pieces, vertices: r.vertices, warnings: r.warnings, errors, crossing };
+    // Speed-limit points (gates, chicanes, forced stops) are stored as map points and placed on
+    // the route by projecting them onto the drawn path each time.
+    const caps = (vector.caps || []).map((c) => ({ ...c, at: distanceAlong(r.pieces, c.point) })).filter((c) => c.at > 0.05 && c.at < r.length - 0.05);
+    const sections = caps.length ? applyCaps(r.sections, caps) : r.sections;
+    return { sections, pieces: r.pieces, vertices: r.vertices, warnings: r.warnings, errors, crossing, caps };
   } catch (e) {
     return { sections: [], warnings: [], errors: [...errors, e.message], crossing };
   }
 }
 
 export const pathLength = (pts) => pts.slice(1).reduce((t, p, i) => t + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0);
+
+// Split route sections (nearest-asset first) at distances from the START of the route and put a
+// speed cap at each split. caps: [{ at: metres from the start, kph }]. A cap of 0 is a forced stop.
+export function applyCaps(sections, caps) {
+  const travel = [...sections].reverse().map((x) => ({ ...x }));
+  for (const cap of [...caps].sort((a, b) => a.at - b.at)) {
+    let run = 0;
+    for (let i = 0; i < travel.length; i++) {
+      const s = travel[i], end = run + s.sLength;
+      if (cap.at <= end + 1e-9) {
+        const first = cap.at - run;
+        if (first < s.sLength - 1e-6 && first > 1e-6) {
+          travel.splice(i, 1, { ...s, sLength: first, capAfter: Math.min(cap.kph, s.capAfter ?? Infinity) }, { ...s, sLength: s.sLength - first, capAfter: s.capAfter });
+          if (travel[i + 1].capAfter === undefined) delete travel[i + 1].capAfter;
+        } else {
+          const k = first <= 1e-6 && i > 0 ? i - 1 : i;
+          travel[k].capAfter = Math.min(cap.kph, travel[k].capAfter ?? Infinity);
+        }
+        break;
+      }
+      run = end;
+    }
+  }
+  return travel.reverse();
+}
+
+// Distance from the start of a filleted route (pieces in travel order) to the point on it nearest p.
+export function distanceAlong(pieces, p) {
+  let best = { d: Infinity, at: 0 }, run = 0;
+  for (const q of pieces) {
+    const pts = q.kind === 'line' ? [q.from, q.to] : arcPoints(q, 24);
+    let local = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1], dx = b.x - a.x, dy = b.y - a.y, L2 = dx * dx + dy * dy, L = Math.sqrt(L2);
+      const t = L2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / L2)) : 0;
+      const d = Math.hypot(a.x + dx * t - p.x, a.y + dy * t - p.y);
+      if (d < best.d) best = { d, at: run + (local + t * L) * (q.length / (q.kind === 'line' ? q.length : chordLength(pts))) };
+      local += L;
+    }
+    run += q.length;
+  }
+  return best.at;
+}
+const chordLength = (pts) => pts.slice(1).reduce((t, p, i) => t + Math.hypot(p.x - pts[i].x, p.y - pts[i].y), 0) || 1;
+export function arcPoints(a, n) {
+  const a0 = Math.atan2(a.from.y - a.centre.y, a.from.x - a.centre.x), sweep = (a.side === 'LEFT' ? 1 : -1) * a.angle;
+  return Array.from({ length: n + 1 }, (_, k) => ({ x: a.centre.x + Math.cos(a0 + (sweep * k) / n) * a.radius, y: a.centre.y + Math.sin(a0 + (sweep * k) / n) * a.radius }));
+}
