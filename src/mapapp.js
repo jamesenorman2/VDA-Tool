@@ -90,15 +90,22 @@ map.on('load', () => {
   map.addLayer({ id: 'osm-line', type: 'line', source: 'osm', paint: { 'line-color': ['case', ['get', 'excluded'], '#2a9d8f', '#4b5563'], 'line-width': ['case', ['get', 'sel'], 2.5, 0.8], 'line-dasharray': [1, 0] } });
   map.addLayer({ id: 'obstacle-fill', type: 'fill', source: 'obstacle', paint: { 'fill-color': '#7c3aed', 'fill-opacity': ['case', ['get', 'sel'], 0.5, 0.3] } });
   map.addLayer({ id: 'obstacle-line', type: 'line', source: 'obstacle', paint: { 'line-color': '#7c3aed', 'line-width': 2 } });
-  map.addLayer({ id: 'asset-fill', type: 'fill', source: 'asset', paint: { 'fill-color': '#1d3557', 'fill-opacity': ['case', ['get', 'sel'], 0.35, 0.2] } });
-  map.addLayer({ id: 'asset-line', type: 'line', source: 'asset', paint: { 'line-color': '#1d3557', 'line-width': 2 } });
+  // Protected zone: the area inside a closed line of protection, lightly shaded.
+  map.addLayer({ id: 'lop-zone', type: 'fill', source: 'lop', filter: ['==', ['get', 'closed'], true], paint: { 'fill-color': '#e63946', 'fill-opacity': 0.07 } });
+  // The asset: solid tint plus diagonal hatching (the drawing convention for what is protected),
+  // with a contrasting casing under a bright outline so it reads on light, dark and satellite maps.
+  map.addImage('asset-hatch', hatchImage(ASSET_COLOUR), { pixelRatio: 2 });
+  map.addLayer({ id: 'asset-fill', type: 'fill', source: 'asset', paint: { 'fill-color': ASSET_COLOUR, 'fill-opacity': ['case', ['get', 'sel'], 0.3, 0.16] } });
+  map.addLayer({ id: 'asset-hatch', type: 'fill', source: 'asset', paint: { 'fill-pattern': 'asset-hatch', 'fill-opacity': 0.9 } });
+  map.addLayer({ id: 'asset-casing', type: 'line', source: 'asset', layout: { 'line-join': 'round' }, paint: { 'line-color': casingColour(), 'line-width': ['case', ['get', 'sel'], 7, 5], 'line-opacity': 0.85 } });
+  map.addLayer({ id: 'asset-line', type: 'line', source: 'asset', layout: { 'line-join': 'round' }, paint: { 'line-color': ASSET_COLOUR, 'line-width': ['case', ['get', 'sel'], 3.5, 2.5] } });
   map.addLayer({ id: 'raw', type: 'line', source: 'raw', paint: { 'line-color': '#555', 'line-width': 1.5, 'line-dasharray': [2, 2], 'line-opacity': 0.8 } });
   map.addLayer({ id: 'path-casing', type: 'line', source: 'path', filter: ['!=', ['get', 'status'], 'rejected'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': ['case', ['get', 'sel'], 9, 6] } });
   map.addLayer({ id: 'path', type: 'line', source: 'path', filter: ['==', ['get', 'status'], 'firm'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'colour'], 'line-width': ['case', ['get', 'sel'], 6, 3.5] } });
   map.addLayer({ id: 'path-sugg', type: 'line', source: 'path', filter: ['==', ['get', 'status'], 'suggested'], layout: { 'line-join': 'round' }, paint: { 'line-color': ['get', 'colour'], 'line-width': ['case', ['get', 'sel'], 6, 3.5], 'line-dasharray': [1.5, 1] } });
   map.addLayer({ id: 'path-rej', type: 'line', source: 'path', filter: ['==', ['get', 'status'], 'rejected'], paint: { 'line-color': '#888', 'line-width': 2, 'line-opacity': 0.5, 'line-dasharray': [1, 2] } });
-  map.addLayer({ id: 'lop-line', type: 'line', source: 'lop', paint: { 'line-color': '#e63946', 'line-width': ['case', ['get', 'sel'], 7, 5] } });
-  map.addLayer({ id: 'lop-dash', type: 'line', source: 'lop', paint: { 'line-color': '#fff', 'line-width': 2, 'line-dasharray': [1, 1.5] } });
+  map.addLayer({ id: 'lop-line', type: 'line', source: 'lop', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#e63946', 'line-width': ['case', ['get', 'sel'], 7, 5] } });
+  map.addLayer({ id: 'lop-dash', type: 'line', source: 'lop', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#fff', 'line-width': 2, 'line-dasharray': [1, 1.5] } });
   map.addLayer({ id: 'temp-line', type: 'line', source: 'temp', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#e0a100', 'line-width': 2.5, 'line-dasharray': [2, 1] } });
   map.addLayer({ id: 'temp-pts', type: 'circle', source: 'temp', filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 4, 'circle-color': '#e0a100', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
   map.addLayer({ id: 'mids', type: 'circle', source: 'mids', paint: { 'circle-radius': ['case', ['get', 'coarse'], 7, 4], 'circle-color': '#1d3557', 'circle-opacity': 0.6, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
@@ -110,6 +117,17 @@ map.on('load', () => {
   restorePlan().then(renderAll);
 });
 
+// ---------- asset styling ----------
+const ASSET_COLOUR = '#3b82f6';
+const casingColour = () => (document.documentElement.dataset.theme === 'light' ? '#ffffff' : '#0b1220');
+function hatchImage(colour) {
+  const n = 24, c = document.createElement('canvas'); c.width = c.height = n;
+  const g = c.getContext('2d');
+  g.strokeStyle = colour; g.lineWidth = 2.5; g.globalAlpha = 0.75;
+  for (const o of [-n, 0, n]) { g.beginPath(); g.moveTo(o, n); g.lineTo(o + n, 0); g.stroke(); }
+  return g.getImageData(0, 0, n, n);
+}
+
 // ---------- plan overlay ----------
 const planCorners = () => {
   const { w, h, placement: T } = project.plan;
@@ -120,7 +138,7 @@ function showPlan() {
   if (map.getSource('plan')) map.removeSource('plan');
   if (!project.plan || !planURL) return;
   map.addSource('plan', { type: 'image', url: planURL, coordinates: planCorners() });
-  map.addLayer({ id: 'plan', type: 'raster', source: 'plan', paint: { 'raster-opacity': project.plan.opacity ?? 0.7, 'raster-fade-duration': 0 } }, 'asset-fill');
+  map.addLayer({ id: 'plan', type: 'raster', source: 'plan', paint: { 'raster-opacity': project.plan.opacity ?? 0.7, 'raster-fade-duration': 0 } }, 'lop-zone');
 }
 function updatePlanCoords() { const s = map.getSource('plan'); if (s) s.setCoordinates(planCorners()); }
 async function restorePlan() {
@@ -452,7 +470,7 @@ map.on('click', (e) => {
   const box = [[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]];
   const h = map.queryRenderedFeatures(box, { layers: ['handles'] })[0];
   if (h) { selectedVertex = h.properties.idx; renderAll(); return; }
-  const f = map.queryRenderedFeatures(box, { layers: ['path', 'path-sugg', 'path-rej', 'raw', 'lop-line', 'asset-fill', 'obstacle-fill', 'osm-fill'] })[0];
+  const f = map.queryRenderedFeatures(box, { layers: ['path', 'path-sugg', 'path-rej', 'raw', 'lop-line', 'asset-fill', 'obstacle-fill', 'osm-fill', 'lop-zone'] })[0];
   selected = f ? { kind: f.properties.kind, id: f.properties.id } : null;
   selectedVertex = null;
   renderAll();
@@ -581,17 +599,39 @@ function pathCoords(pieces) {
   return out;
 }
 
-let tags = [], segTags = [];
+let tags = [], segTags = [], assetTags = [];
+// A point well inside the polygon for its label: the point furthest from every edge (searched on
+// a coarse grid, then refined), so L- and U-shaped buildings get a label in their widest part.
+function labelPoint(poly) {
+  const xs = poly.map((p) => p.x), ys = poly.map((p) => p.y);
+  let x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  let best = centroid(poly), bestD = pointInPolygon(best, poly) ? nearestOnPolyline(best, poly, true).d : -1;
+  for (let round = 0; round < 3; round++) {
+    const n = 12, dx = (x1 - x0) / n, dy = (y1 - y0) / n;
+    for (let i = 0; i <= n; i++) for (let k = 0; k <= n; k++) {
+      const q = { x: x0 + dx * i, y: y0 + dy * k };
+      if (!pointInPolygon(q, poly)) continue;
+      const d = nearestOnPolyline(q, poly, true).d;
+      if (d > bestD) { bestD = d; best = q; }
+    }
+    x0 = best.x - dx; x1 = best.x + dx; y0 = best.y - dy; y1 = best.y + dy; // zoom in round the best
+  }
+  return best;
+}
 function renderAll(fast) {
   if (!map.getSource('path')) return;
   results = new Map(project.vectors.map((v) => [v.id, compute(v)]));
   const sel = (kind, id) => !!selected && selected.kind === kind && selected.id === id;
   const line = (coords, props) => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } });
   setData('asset', { type: 'FeatureCollection', features: frame ? project.assets.map((a) => ({ type: 'Feature', properties: { kind: 'asset', id: a.id, sel: sel('asset', a.id) }, geometry: { type: 'Polygon', coordinates: [[...a.points.map(toLL), toLL(a.points[0])]] } })) : [] });
-  setData('lop', { type: 'FeatureCollection', features: frame ? project.lops.map((l) => line((l.closed ? [...l.points, l.points[0]] : l.points).map(toLL), { kind: 'lop', id: l.id, sel: sel('lop', l.id) })) : [] });
+  setData('lop', { type: 'FeatureCollection', features: frame ? project.lops.flatMap((l) => [
+    line((l.closed ? [...l.points, l.points[0]] : l.points).map(toLL), { kind: 'lop', id: l.id, sel: sel('lop', l.id) }),
+    ...(l.closed && l.points.length >= 3 ? [{ type: 'Feature', properties: { kind: 'lop', id: l.id, closed: true }, geometry: { type: 'Polygon', coordinates: [[...l.points.map(toLL), toLL(l.points[0])]] } }] : []),
+  ]) : [] });
   const poly = (pts, props) => ({ type: 'Feature', properties: props, geometry: { type: 'Polygon', coordinates: [[...pts.map(toLL), toLL(pts[0])]] } });
   setData('obstacle', { type: 'FeatureCollection', features: frame ? project.obstacles.map((o) => poly(o.points, { kind: 'obstacle', id: o.id, sel: sel('obstacle', o.id) })) : [] });
-  setData('osm', { type: 'FeatureCollection', features: frame ? osmBuildings(true).map((b) => poly(b.points, { kind: 'osm', id: b.id, sel: sel('osm', b.id), excluded: project.osmExcluded.includes(b.id) })) : [] });
+  const assetOsm = new Set(project.assets.map((a) => a.osmId).filter(Boolean));
+  setData('osm', { type: 'FeatureCollection', features: frame ? osmBuildings(true).filter((b) => !assetOsm.has(b.id)).map((b) => poly(b.points, { kind: 'osm', id: b.id, sel: sel('osm', b.id), excluded: project.osmExcluded.includes(b.id) })) : [] });
   $('obs-count').textContent = `${osmBuildings().length + project.obstacles.length} obstacles`;
   const raw = [], path = [];
   for (const v of project.vectors) {
@@ -640,6 +680,16 @@ function renderAll(fast) {
     el.title = `${v.name}: up to ${Math.round(conv(r.worst))} ${unitName()} at the line of protection`;
     el.addEventListener('click', (ev) => { ev.stopPropagation(); selected = { kind: 'vector', id: v.id }; renderAll(); });
     tags.push(new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -6] }).setLngLat(toLL(r.crossing.point)).addTo(map));
+  }
+  // Asset name labels.
+  assetTags.forEach((t) => t.remove()); assetTags = [];
+  if (frame) for (const a of project.assets) {
+    const el = document.createElement('div');
+    el.className = `asset-tag${sel('asset', a.id) ? ' sel' : ''}`;
+    el.textContent = a.name;
+    el.title = `${a.name}: the asset being protected`;
+    el.addEventListener('click', (ev) => { ev.stopPropagation(); if (mode) return; selected = { kind: 'asset', id: a.id }; selectedVertex = null; renderAll(); revealDetail(); });
+    assetTags.push(new maplibregl.Marker({ element: el }).setLngLat(toLL(labelPoint(a.points))).addTo(map));
   }
   if (fast) { renderDetail(); return; }
   renderPlanFacts(); renderList(); renderDetail(); renderProject();
@@ -833,7 +883,7 @@ $('proj-clear').addEventListener('click', async () => {
 });
 
 // ---------- legend ----------
-$('legend').innerHTML = '<b>Worst-case impact speed <em class="short">(km/h)</em></b>' + TEST_SPEEDS_KPH.map((t, i) => `<span><i style="background:${BAND_COLOURS[i]}"></i><em class="full">≤ ${t} km/h</em><em class="short">${t}</em></span>`).join('') + `<span><i style="background:${BAND_COLOURS[7]}"></i><em class="full">&gt; 112 km/h</em><em class="short">&gt;112</em></span>`;
+$('legend').innerHTML = `<div class="key"><span><i class="k-asset"></i>Asset</span><span><i class="k-lop"></i>Line of protection</span><span><i class="k-obs"></i>Obstacle</span></div>` + '<b>Worst-case impact speed <em class="short">(km/h)</em></b>' + TEST_SPEEDS_KPH.map((t, i) => `<span><i style="background:${BAND_COLOURS[i]}"></i><em class="full">≤ ${t} km/h</em><em class="short">${t}</em></span>`).join('') + `<span><i style="background:${BAND_COLOURS[7]}"></i><em class="full">&gt; 112 km/h</em><em class="short">&gt;112</em></span>`;
 renderKey(); renderProject();
 
 // ---------- copy for report ----------
@@ -861,7 +911,10 @@ $('copy-all').addEventListener('click', async (e) => {
 $('version').textContent = `v${VERSION}`;
 mountThemeToggle($('theme'));
 const bgColour = () => (document.documentElement.dataset.theme === 'light' ? '#eef0f2' : '#1a2026');
-const applyMapTheme = () => { if (map.getLayer('bg')) map.setPaintProperty('bg', 'background-color', bgColour()); };
+const applyMapTheme = () => {
+  if (map.getLayer('bg')) map.setPaintProperty('bg', 'background-color', bgColour());
+  if (map.getLayer('asset-casing')) map.setPaintProperty('asset-casing', 'line-color', casingColour());
+};
 document.addEventListener('themechange', applyMapTheme);
 map.on('load', applyMapTheme);
 
@@ -872,6 +925,10 @@ function renderShapeDetail(box, item) {
   let buttons = '';
   if (k === 'asset' || k === 'obstacle' || k === 'osm') {
     facts.push(['Area', `${Math.round(area(item.points)).toLocaleString()} m²`], ['Perimeter', `${perimeter(item.points).toFixed(1)} m`]);
+  }
+  if (k === 'asset' && project.lops.length) {
+    const d = Math.min(...project.lops.map((l) => minDistance(item.points, true, l.points, !!l.closed)));
+    facts.push(['Standoff to nearest line of protection', `${d.toFixed(1)} m`]);
   }
   if (k === 'lop') {
     facts.push(['Length', `${(item.closed ? perimeter(item.points) : polylineLength(item.points)).toFixed(1)} m${item.closed ? ' (closed loop)' : ''}`]);
