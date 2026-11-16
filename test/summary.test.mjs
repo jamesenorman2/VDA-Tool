@@ -33,7 +33,9 @@ test('required protection: fastest firm vector governs; suggestions are counted 
   assert.equal(sec[0].governing.name, 'accepted');
   assert.equal(sec[0].pending, 1); assert.equal(sec[0].rejected, 1);
   assert.equal(sec[0].tests.CAR, 80); // 120 m standing: car ≈ 79 km/h → 80 km/h test speed
-  assert.equal(draftDesignation('SEVENTRIGID', 48), 'V/7500[N2]/48/90');
+  assert.equal(draftDesignation('SEVENTRIGID', 48), 'V/7200[N2A]/48/90');
+  assert.equal(draftDesignation('EIGHTEENTRIGID', 64), 'V/24000[N3F]/64/90');
+  assert.equal(draftDesignation('THIRTYTRIGID', 48), 'V/30000[N3G]/48/90');
 });
 
 test('each section is one continuous stretch of the line', () => {

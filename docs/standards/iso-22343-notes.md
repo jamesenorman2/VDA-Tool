@@ -27,7 +27,7 @@ From the Level 2 OR proforma, Annex A (Table A.12 for threat vehicles, Table A.1
 | N3F | 26 000 kg | 3-axle rigid |
 | N3G | 30 000 kg | 4-axle rigid, day cab |
 
-### Mapping to this tool's six classes (PROPOSED, NOT YET CONFIRMED)
+### Mapping to this tool's six classes (CONFIRMED by the owner, 16 Nov 2026)
 
 | Tool class | Nominal mass | Proposed ISO class | Confidence |
 |---|---:|---|---|
@@ -38,7 +38,7 @@ From the Level 2 OR proforma, Annex A (Table A.12 for threat vehicles, Table A.1
 | 18 t two-axle rigid (N3) | 18 000 kg | No 18 t class in ISO 22343. Nearest 2-axle: N3D 12 000 kg; nearest by mass: N3F 24 000 kg (3-axle, cab over) | Owner to confirm |
 | 30 t four-axle rigid (N3) | 30 000 kg | N3G, 30 000 kg | Exact match |
 
-Until the owner confirms this table, the tool labels barrier designations as drafts.
+Confirmed choices: 7.5 t → **N2A** (7 200 kg); 18 t → **N3F** (24 000 kg, 3-axle; heavier than the threat, so conservative); 30 t → **N3G**. The tool's ratings use these (`ISO_CLASS` in `src/summary.js`). PAS 68, IWA 14-1 and ASTM F2656 equivalents are not mapped.
 
 ## Part 1: test vehicles, speeds and ratings
 
@@ -150,9 +150,9 @@ The standard's design-method example (Annex B.6, Table B.2) shows the rating as 
 
 ## Implications for the tool (to do)
 
-1. Once the owner confirms the mapping above, switch the draft designations to ISO 22343 form (e.g. `V/7200[N2A]/64/90`) using ISO test masses, and drop the "draft" label.
+1. Done: ratings are given in ISO 22343-1 form (e.g. `V/7200[N2A]/64/90`) with the confirmed mapping.
 2. Done: test speeds are capped per class (Part 1 Table 5), so trucks above 80 km/h, flatbeds above 96 km/h, and cars or pick-ups above 112 km/h show "above …".
-3. Add an Annex A Table A.12-style summary to the report: for each threat vehicle, the impact angle and speed.
+3. Done: the report has a Table A.12-style summary: for each threat vehicle, the impact angle and speed.
 4. When speed-reduction features are added to a vector, remind the user they should be impact-rated (9.2.4).
 5. A future gap check should use 1 200 mm at 600 mm height.
 6. A future stand-off check could compare each line of protection's distance to the asset with a product's penetration and debris distances (9.4.3).

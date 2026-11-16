@@ -3,7 +3,7 @@
 /* global docx */
 import { VEHICLES, KPH_PER_MPH, MASS_KG, MAX_TEST_SPEED_KPH, testSpeedText, buildRouteSpeeds, startArg } from './maths.js';
 import { resolveVector, pathLength } from './model.js';
-import { requiredProtection, draftDesignation } from './summary.js';
+import { requiredProtection, isoDesignation, ISO_CLASS } from './summary.js';
 import { VERSION } from './version.js';
 import { loadJSON, getBlob } from './store.js';
 
@@ -88,9 +88,18 @@ function buildBlocks(p, A, mapImage) {
   table(['Section', 'Line', 'Length (m)', 'Governing vector', 'Angle (°)', ...VEHICLES.map((c) => `${c.name} ${A.unit} (test km/h)`)],
     A.sections.map((s) => [s.label, s.lopName, Math.round(s.length), s.governing?.name || 'none', s.governing ? Math.round(s.governing.angle) : '–', ...VEHICLES.map((c) => (s.speeds[c.id] == null ? '–' : `${Math.round(A.conv(s.speeds[c.id]))} (${s.tests[c.id] ?? `above ${MAX_TEST_SPEED_KPH[c.id]}`})`))]), 2);
 
-  h(3, 'Draft barrier performance requirements');
-  B.push({ t: 'callout', cls: 'warn', text: 'Draft only. The mapping of this tool\'s vehicle classes to the test vehicles of ISO 22343, IWA 14-1, PAS 68 and ASTM F2656 has not yet been confirmed. The designations below use this tool\'s class codes and nominal masses at a 90° impact; confirm them against the standard before specifying products.' });
-  table(['Section', ...VEHICLES.map((c) => c.name)], A.sections.filter((s) => s.governing).map((s) => [s.label, ...VEHICLES.map((c) => draftDesignation(c.id, s.tests[c.id]))]), 99);
+  h(3, 'Barrier performance requirements (ISO 22343-1)');
+  para(`Each entry is the minimum ISO 22343-1 vehicle impact rating (test type V / test vehicle mass [class] / impact speed km/h / impact angle) a barrier in that section needs. Vehicle classes are rated against these ISO test vehicles: ${VEHICLES.map((c) => `${c.name} as ${ISO_CLASS[c.id].code} (${ISO_CLASS[c.id].mass.toLocaleString('en-GB')} kg)`).join('; ')}. The 18 t rigid is rated against the heavier N3F test vehicle, which is conservative. Ratings are at 90°; check products tested at other angles against the impact angle shown in the table above (ISO 22343-2, 9.3). The product's vehicle penetration and major debris distances must be less than the stand-off between the line of protection and the asset (ISO 22343-2, 9.4.3). Equivalent PAS 68, IWA 14-1 or ASTM F2656 ratings are not given here.`);
+  table(['Section', ...VEHICLES.map((c) => `${c.name} [${ISO_CLASS[c.id].code}]`)], A.sections.filter((s) => s.governing).map((s) => [s.label, ...VEHICLES.map((c) => isoDesignation(c.id, s.tests[c.id]))]), 99);
+
+  // ISO 22343-2 Annex A, Table A.12 style: one row per threat vehicle.
+  h(3, 'Impact and performance requirement by threat vehicle (ISO 22343-2 Annex A, Table A.12)');
+  table(['Threat vehicle (ISO 22343-1)', 'Tool class', 'Impact angle (°)', `Impact speed (${A.unit})`, 'Required test speed (km/h)', 'Section', 'Vector'], VEHICLES.map((c) => {
+    const best = A.sections.filter((s) => s.speeds[c.id] != null).sort((a, b) => b.speeds[c.id] - a.speeds[c.id])[0];
+    if (!best) return [`${ISO_CLASS[c.id].name} [${ISO_CLASS[c.id].code}]`, c.name, '–', '–', '–', '–', '–'];
+    const gov = best.firm.slice().sort((a, b) => b.speeds[c.id] - a.speeds[c.id])[0];
+    return [`${ISO_CLASS[c.id].name} [${ISO_CLASS[c.id].code}]`, c.name, Math.round(gov.angle), Math.round(A.conv(best.speeds[c.id])), best.tests[c.id] ?? `above ${MAX_TEST_SPEED_KPH[c.id]}`, best.label, gov.name];
+  }), 2);
 
   // 4 Vectors
   h(2, '4. Attack vectors');
@@ -123,7 +132,7 @@ function buildBlocks(p, A, mapImage) {
     'Vehicle width is not modelled for drawn vectors.',
     'The acceleration curves are empirical fits; the results are only as good as their source data. The engine has been verified against the NPSA HOVVA tool: all 156 test values (13 routes, standing and rolling starts, six vehicle classes) were identical as displayed (16 November 2026).',
     'Missing or out-of-date buildings in OpenStreetMap change the results; the assessor should confirm the site on the ground.',
-    'Barrier designations are drafts until the vehicle class mapping to each standard is confirmed.',
+    'Barrier ratings are given to ISO 22343-1 only, using the confirmed mapping of vehicle classes to ISO test vehicles; PAS 68, IWA 14-1 and ASTM F2656 equivalents are not mapped.',
     'These results support, but do not replace, a competent specialist assessment.',
   ]);
 

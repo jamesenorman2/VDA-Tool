@@ -9,10 +9,22 @@ import { VEHICLES, MASS_KG, MAX_TEST_SPEED_KPH, nextTestSpeed } from './maths.js
 const heading = (a, b) => Math.atan2(b.y - a.y, b.x - a.x);
 const turn = (h0, h1) => { let d = h1 - h0; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; return Math.abs(d); };
 
-// Vehicle class codes and nominal masses used in draft rating designations. The mapping of the
-// tool's classes to each standard's test vehicles has NOT been confirmed: label output as draft.
-export const CLASS_CODE = { CAR: 'M1', PICKUP: 'N1G', FLATBED: 'N1', SEVENTRIGID: 'N2', EIGHTEENTRIGID: 'N3', THIRTYTRIGID: 'N3' };
-export const draftDesignation = (classId, testKph) => (testKph ? `V/${MASS_KG[classId]}[${CLASS_CODE[classId]}]/${testKph}/90` : `no test above ${MAX_TEST_SPEED_KPH[classId]} km/h`);
+// The ISO 22343-1 test vehicle each of the tool's classes is rated against, as confirmed by the
+// owner (16 Nov 2026). The 18 t class maps to N3F (24 000 kg, 3-axle): heavier than the threat, so
+// a barrier rated for it covers the 18 t vehicle. Other standards (PAS 68, IWA 14-1, ASTM F2656)
+// are not mapped yet.
+export const ISO_CLASS = {
+  CAR: { code: 'M1', mass: 1500, name: '1 500 kg car' },
+  PICKUP: { code: 'N1G', mass: 2500, name: '2 500 kg 4x4 crew-cab pick-up' },
+  FLATBED: { code: 'N1', mass: 3500, name: '3 500 kg flatbed, single cab' },
+  SEVENTRIGID: { code: 'N2A', mass: 7200, name: '7 200 kg 2-axle rigid' },
+  EIGHTEENTRIGID: { code: 'N3F', mass: 24000, name: '24 000 kg 3-axle rigid' },
+  THIRTYTRIGID: { code: 'N3G', mass: 30000, name: '30 000 kg 4-axle rigid' },
+};
+// ISO 22343-1 performance requirement for a section and class, e.g. V/7200[N2A]/64/90. The
+// penetration and debris parts of the rating come from the product, not from the VDA.
+export const isoDesignation = (classId, testKph) => (testKph ? `V/${ISO_CLASS[classId].mass}[${ISO_CLASS[classId].code}]/${testKph}/90` : `no test above ${MAX_TEST_SPEED_KPH[classId]} km/h`);
+export const draftDesignation = isoDesignation; // former name
 
 // Split a LoP into sections at its corners. Main sides are the long edges (at least 8 m and a
 // fifth of the longest); consecutive main sides within 35° of each other form one section. Short
