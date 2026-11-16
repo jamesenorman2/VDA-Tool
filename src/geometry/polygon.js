@@ -73,7 +73,9 @@ export function minDistance(a, aClosed, b, bClosed) {
 
 // Offset a simple polygon outward by d metres. Convex corners are rounded (arc steps of at most
 // 5°), so the result is a standoff line to within 0.1 %; concave corners use the miter point.
-export function offsetPolygon(poly, d) {
+// With `outer`, rounded corners are drawn as tangent segments outside the true arc, so the line is
+// never closer than d anywhere (used for standoff lines, which must not undercut the standoff).
+export function offsetPolygon(poly, d, stepDeg = 5, outer = false) {
   const ccw = signedArea(poly) > 0;
   const n = poly.length, out = [];
   // Outward normal of edge i (from poly[i] to poly[i+1]).
@@ -85,8 +87,15 @@ export function offsetPolygon(poly, d) {
       const a0 = Math.atan2(nPrev.y, nPrev.x);
       let sweep = Math.atan2(nNext.y, nNext.x) - a0;
       if (ccw) { while (sweep < 0) sweep += 2 * Math.PI; } else { while (sweep > 0) sweep -= 2 * Math.PI; }
-      const steps = Math.max(1, Math.ceil(Math.abs(sweep) / (Math.PI / 36))); // 5° steps: chords stay within 0.1 % of d
-      for (let k = 0; k <= steps; k++) { const a = a0 + (sweep * k) / steps; out.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }); }
+      const steps = Math.max(1, Math.ceil(Math.abs(sweep) / ((stepDeg * Math.PI) / 180))); // 5° default: chords within 0.1 % of d
+      if (outer) {
+        const h = sweep / (2 * steps), R = d / Math.cos(h);
+        out.push({ x: p.x + Math.cos(a0) * d, y: p.y + Math.sin(a0) * d });
+        for (let k = 0; k < steps; k++) { const a = a0 + (2 * k + 1) * h; out.push({ x: p.x + Math.cos(a) * R, y: p.y + Math.sin(a) * R }); }
+        out.push({ x: p.x + Math.cos(a0 + sweep) * d, y: p.y + Math.sin(a0 + sweep) * d });
+      } else {
+        for (let k = 0; k <= steps; k++) { const a = a0 + (sweep * k) / steps; out.push({ x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d }); }
+      }
     } else {
       const bis = unit(add(nPrev, nNext));
       const c = dot(bis, nNext);
@@ -122,4 +131,15 @@ export function rectangleFrom(a, b, c) {
   const depth = dot(sub(c, a), nrm);
   const off = mul(nrm, depth);
   return [a, b, add(b, off), add(a, off)];
+}
+
+// Outline of a thin strip around a polyline (half-width hw), as one polygon. Used for walls.
+export function bufferLine(pts, hw) {
+  const left = [], right = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+    const t = unit(sub(b, a)), n = { x: -t.y, y: t.x };
+    left.push(add(pts[i], mul(n, hw))); right.push(add(pts[i], mul(n, -hw)));
+  }
+  return [...left, ...right.reverse()];
 }
