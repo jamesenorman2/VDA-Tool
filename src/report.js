@@ -1,7 +1,7 @@
 // Assessment report: built from the saved map project as a list of blocks, then rendered as
 // printable HTML (save as PDF from the print dialog) and as a Word document (docx library).
 /* global docx */
-import { VEHICLES, KPH_PER_MPH, MASS_KG, nextTestSpeed, buildRouteSpeeds, startArg } from './maths.js';
+import { VEHICLES, KPH_PER_MPH, MASS_KG, MAX_TEST_SPEED_KPH, testSpeedText, buildRouteSpeeds, startArg } from './maths.js';
 import { resolveVector, pathLength } from './model.js';
 import { requiredProtection, draftDesignation } from './summary.js';
 import { VERSION } from './version.js';
@@ -65,7 +65,7 @@ function buildBlocks(p, A, mapImage) {
     h(3, 'Highest impact speed by vehicle class');
     table(['Vehicle class', `Impact speed (${A.unit})`, 'Lowest test speed at or above it (km/h)', 'Section', 'Vector'], VEHICLES.map((c) => {
       const best = A.firm.map((v) => ({ v, s: A.results.get(v.id).speeds[c.id] })).sort((a, b) => b.s - a.s)[0];
-      return [c.name, Math.round(A.conv(best.s)), nextTestSpeed(best.s) ?? '> 112', A.sectionOf(best.v)?.label || '–', best.v.name];
+      return [c.name, Math.round(A.conv(best.s)), testSpeedText(best.s, c.id), A.sectionOf(best.v)?.label || '–', best.v.name];
     }), 1);
   } else para('No vectors have been accepted or drawn yet, so there are no results.', 'warn');
   const issues = [];
@@ -84,9 +84,9 @@ function buildBlocks(p, A, mapImage) {
 
   // 3 Required protection
   h(2, '3. Required protection by section');
-  para('Each line of protection is divided into sections at its corners. The figures for a section come from the fastest accepted or drawn vector crossing it. The test speed is the lowest standard vehicle impact test speed (16, 32, 48, 64, 80, 96 or 112 km/h) at or above the impact speed.');
+  para('Each line of protection is divided into sections at its corners. The figures for a section come from the fastest accepted or drawn vector crossing it. The test speed is the lowest ISO 22343-1 impact test speed (16, 32, 48, 64, 80, 96 or 112 km/h) at or above the impact speed that exists for the vehicle class: tests go up to 112 km/h for cars and 4x4 pick-ups, 96 km/h for flatbeds and 80 km/h for N2 and N3 trucks. "Above 80" means no rated product can be tested at that speed for that class, so the speed itself must be reduced (for example with impact-rated speed-reduction features) or the line of protection moved.');
   table(['Section', 'Line', 'Length (m)', 'Governing vector', 'Angle (°)', ...VEHICLES.map((c) => `${c.name} ${A.unit} (test km/h)`)],
-    A.sections.map((s) => [s.label, s.lopName, Math.round(s.length), s.governing?.name || 'none', s.governing ? Math.round(s.governing.angle) : '–', ...VEHICLES.map((c) => (s.speeds[c.id] == null ? '–' : `${Math.round(A.conv(s.speeds[c.id]))} (${s.tests[c.id] ?? '>112'})`))]), 2);
+    A.sections.map((s) => [s.label, s.lopName, Math.round(s.length), s.governing?.name || 'none', s.governing ? Math.round(s.governing.angle) : '–', ...VEHICLES.map((c) => (s.speeds[c.id] == null ? '–' : `${Math.round(A.conv(s.speeds[c.id]))} (${s.tests[c.id] ?? `above ${MAX_TEST_SPEED_KPH[c.id]}`})`))]), 2);
 
   h(3, 'Draft barrier performance requirements');
   B.push({ t: 'callout', cls: 'warn', text: 'Draft only. The mapping of this tool\'s vehicle classes to the test vehicles of ISO 22343, IWA 14-1, PAS 68 and ASTM F2656 has not yet been confirmed. The designations below use this tool\'s class codes and nominal masses at a 90° impact; confirm them against the standard before specifying products.' });
