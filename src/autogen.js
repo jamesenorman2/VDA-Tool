@@ -17,7 +17,7 @@
 
 import { VEHICLES, buildRouteSpeeds } from './maths.js';
 import { polylineToSections } from './geometry/fillet.js';
-import { sub, add, mul, dist, dot, centroid, pointInPolygon, nearestOnSegment, segmentIntersect, simplify, signedArea } from './geometry/polygon.js';
+import { sub, add, mul, dist, dot, cross, centroid, pointInPolygon, nearestOnSegment, segmentIntersect, simplify, signedArea, offsetPolygon } from './geometry/polygon.js';
 
 const unit = (a) => { const l = Math.hypot(a.x, a.y); return { x: a.x / l, y: a.y / l }; };
 const rot = (v, a) => ({ x: v.x * Math.cos(a) - v.y * Math.sin(a), y: v.x * Math.sin(a) + v.y * Math.cos(a) });
@@ -29,21 +29,24 @@ function withBox(poly) {
 }
 const boxHit = (b, x0, y0, x1, y1) => !(b.maxX < Math.min(x0, x1) || b.minX > Math.max(x0, x1) || b.maxY < Math.min(y0, y1) || b.minY > Math.max(y0, y1));
 
-export function makeObstacleIndex(polys) {
-  const items = polys.filter((p) => p.length >= 3).map(withBox);
+// `clearance` grows every obstacle outward (metres), so paths keep roughly half a vehicle's
+// width away from walls and cannot slip through a corner point.
+export function makeObstacleIndex(polys, clearance = 0) {
+  const items = polys.filter((p) => p.length >= 3).map((p) => withBox(clearance > 0 ? offsetPolygon(p, clearance) : p));
   return {
     items,
-    // First hit along a→b as a fraction of the segment, or null.
-    firstHit(a, b) {
-      let best = null;
+    // First hit along a→b as a fraction of the segment, or null. `hits` collects the obstacle hit.
+    firstHit(a, b, hits) {
+      let best = null, bestItem = null;
       for (const it of items) {
         if (!boxHit(it, a.x, a.y, b.x, b.y)) continue;
         const P = it.poly;
         for (let i = 0; i < P.length; i++) {
           const h = segmentIntersect(a, b, P[i], P[(i + 1) % P.length]);
-          if (h && (best === null || h.t < best)) best = h.t;
+          if (h && (best === null || h.t < best)) { best = h.t; bestItem = it; }
         }
       }
+      if (hits && bestItem) hits.add(bestItem);
       return best;
     },
     inside(p) {
@@ -157,11 +160,17 @@ function walkBack(firstHops, budget, cap = 60) {
 }
 
 /**
- * @returns {{ candidates: object[], stats: object }} candidates sorted fastest first, each
+ * @returns {{ candidates: object[], all: object[], stats: object }} candidates (kept, fastest first) and all found, each
  *   { points, vertexOptions, start, kind, lopId, s, speeds, worst, note }
  */
-export function generateVectors({ lops, assets = [], obstacles = [], roads = [], radius = 440, step = 10, binLength = 25, maxResults = 10, roadReach = 60 }) {
-  const index = makeObstacleIndex([...obstacles, ...assets.map((a) => a.points)]);
+export function generateVectors({ lops, assets = [], obstacles = [], roads = [], radius = 440, step = 10, binLength = 25, maxResults = 10, roadReach = 60, clearance = 1 }) {
+  const index = makeObstacleIndex([...obstacles, ...assets.map((a) => a.points)], clearance);
+  // Impact angle (0–90°) of the final leg against the LoP at the sample point.
+  const angleAt = (pts, tangent) => {
+    const a = pts[pts.length - 2], b = pts[pts.length - 1], d = sub(b, a), l = Math.hypot(d.x, d.y);
+    return (Math.asin(Math.min(1, Math.abs(cross(d, tangent)) / l)) * 180) / Math.PI;
+  };
+  const push = (c, smp) => all.push({ ...c, angle: angleAt(c.points, smp.tangent) });
   const lopLines = lops.map((l) => (l.closed ? [...l.points, l.points[0]] : l.points));
   // Where a ray first meets any LoP (beyond the start), as a fraction.
   const lopHit = (a, b) => {
@@ -181,10 +190,11 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
       const sides = smp.twoSided ? [smp.n, mul(smp.n, -1)] : [smp.n];
       for (const n of sides) {
         // Open ground.
+        const blockers = new Set();
         for (let deg = -75; deg <= 75; deg += 5) {
           const u = rot(n, (deg * Math.PI) / 180);
           const from = add(smp.p, mul(u, 0.5)), far = add(smp.p, mul(u, radius));
-          const tb = index.firstHit(from, far), tl = lopHit(from, far);
+          const tb = index.firstHit(from, far, blockers), tl = lopHit(from, far);
           const t = Math.min(tb ?? Infinity, tl ?? Infinity);
           const runUp = Number.isFinite(t) ? 0.5 + t * (radius - 0.5) - 1 : radius;
           rays++;
@@ -193,8 +203,40 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
           const blocked = Number.isFinite(t);
           const start = blocked ? 'STANDING' : 'ROLLING';
           const sc = scoreVector([startPt, endPt], [], start);
-          all.push({ points: [startPt, endPt], vertexOptions: [], start, kind: 'open', lopId: smp.lopId, s: smp.s, ...sc,
-            note: blocked ? `Straight run across open ground, ${Math.round(runUp)} m from ${tb != null && (tl == null || tb <= tl) ? 'an obstacle' : 'the line of protection'} (standing start).` : `Straight run across open ground with a clear ${radius} m run-up (rolling start).` });
+          push({ points: [startPt, endPt], vertexOptions: [], start, kind: 'open', lopId: smp.lopId, s: smp.s, ...sc,
+            note: blocked ? `Straight run across open ground, ${Math.round(runUp)} m from ${tb != null && (tl == null || tb <= tl) ? 'an obstacle' : 'the line of protection'} (standing start).` : `Straight run across open ground with a clear ${radius} m run-up (rolling start).` }, smp);
+        }
+        // Round the corner: a vehicle running along an obstacle that blocked a straight run can
+        // swing round one of its corners onto the line. Corners are passed 1.5 m clear.
+        for (const it of blockers) {
+          const c = centroid(it.poly);
+          for (const V of it.poly) {
+            const away = sub(V, c), al = Math.hypot(away.x, away.y);
+            if (al < 1e-6) continue;
+            const corner = add(V, mul(away, 1.5 / al));
+            const toT = sub(smp.p, corner), dT = Math.hypot(toT.x, toT.y);
+            if (dT < 5 || dT > radius - 5 || dot(mul(toT, -1), n) <= 0) continue;
+            const short = add(smp.p, mul(toT, -0.5 / dT)); // stop just before the line itself
+            if (index.inside(corner) || index.firstHit(corner, smp.p) !== null || lopHit(corner, short) !== null) continue;
+            const back = unit(mul(toT, -1)); // direction from the corner away from the line
+            let best = null;
+            for (let deg = -80; deg <= 80; deg += 10) {
+              const d = rot(back, (deg * Math.PI) / 180), budget = radius - dT;
+              const far = add(corner, mul(d, budget));
+              const t = Math.min(index.firstHit(add(corner, mul(d, 0.5)), far) ?? Infinity, lopHit(add(corner, mul(d, 0.5)), far) ?? Infinity);
+              const run = Number.isFinite(t) ? 0.5 + t * (budget - 0.5) - 1 : budget;
+              if (run >= 5 && (!best || run > best.run)) best = { d, run, open: !Number.isFinite(t) };
+            }
+            if (!best) continue;
+            const pts = [add(corner, mul(best.d, best.run)), corner, smp.p, add(smp.p, mul(unit(toT), 1))];
+            try {
+              const vo = obstacleLimitedRadii(pts, index);
+              const start = best.open ? 'ROLLING' : 'STANDING';
+              const sc = scoreVector(pts, vo, start);
+              push({ points: pts, vertexOptions: vo, start, kind: 'corner', lopId: smp.lopId, s: smp.s, ...sc,
+                note: `Runs ${Math.round(best.run)} m alongside an obstacle, then round its corner onto the line (${start === 'ROLLING' ? 'rolling' : 'standing'} start).` }, smp);
+            } catch { /* degenerate */ }
+          }
         }
         // Road network.
         if (!graph.segments.length) continue;
@@ -230,8 +272,8 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
               const vo = obstacleLimitedRadii(pts, index);
               const start = w.reachedRadius ? 'ROLLING' : 'STANDING';
               const sc = scoreVector(pts, vo, start);
-              all.push({ points: pts, vertexOptions: vo, start, kind: 'road', lopId: smp.lopId, s: smp.s, ...sc,
-                note: w.reachedRadius ? `Along the road network for the full ${radius} m study radius, then off the road to the line (rolling start).` : 'Along the road network from a dead end, then off the road to the line (standing start).' });
+              push({ points: pts, vertexOptions: vo, start, kind: 'road', lopId: smp.lopId, s: smp.s, ...sc,
+                note: w.reachedRadius ? `Along the road network for the full ${radius} m study radius, then off the road to the line (rolling start).` : 'Along the road network from a dead end, then off the road to the line (standing start).' }, smp);
             } catch { /* degenerate path */ }
           }
         }
@@ -239,13 +281,15 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
     }
   }
 
-  // Keep the fastest per stretch of LoP, then the fastest overall.
+  // Keep the fastest per stretch of LoP, then the fastest overall. Ties (within 0.5 km/h) go to
+  // the more head-on impact.
+  const better = (a, b) => (Math.abs(a.worst - b.worst) > 0.5 ? a.worst > b.worst : a.angle > b.angle);
   const bins = new Map();
   for (const c of all) {
     const k = `${c.lopId}:${Math.floor(c.s / binLength)}`;
-    if (!bins.has(k) || bins.get(k).worst < c.worst) bins.set(k, c);
+    if (!bins.has(k) || better(c, bins.get(k))) bins.set(k, c);
   }
-  const candidates = [...bins.values()].sort((a, b) => b.worst - a.worst).slice(0, maxResults);
-  return { candidates, stats: { samples: all.length, rays, roadPaths, bins: bins.size } };
+  const candidates = [...bins.values()].sort((a, b) => (better(a, b) ? -1 : better(b, a) ? 1 : 0)).slice(0, maxResults);
+  return { candidates, all, stats: { samples: all.length, rays, roadPaths, bins: bins.size } };
 }
 

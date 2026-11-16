@@ -36,7 +36,7 @@ test('open-ground search: a building limits the run-up on its side; open sides r
   const r = generateVectors({ lops: [lop], assets: [asset], obstacles: [box(-2000, 60, 2000, 90)], binLength: 1, maxResults: 1000 }); // one bin per sample
   const c = r.candidates;
   assert.ok(c.length > 4);
-  for (let i = 1; i < c.length; i++) assert.ok(c[i - 1].worst >= c[i].worst);
+  for (let i = 1; i < c.length; i++) assert.ok(c[i - 1].worst >= c[i].worst - 0.5); // ties within 0.5 km/h go to the more head-on
   const north = c.filter((x) => x.kind === 'open' && x.points[1].y > 15 && Math.abs(x.points[1].x) < 8); // straight north edge only
   assert.ok(north.length && north.every((x) => x.start === 'STANDING' && x.worst < CAR_TOP), JSON.stringify(north.map((x) => x.worst)));
   const south = c.filter((x) => x.kind === 'open' && x.points[1].y < -15);
@@ -50,7 +50,21 @@ test('road search follows the network and leaves the road for the last leg', () 
   const obstacles = [box(-500, 35, -6, 400), box(6, 35, 500, 400)];
   const road = [P(0, 600), P(0, 60), P(0, 40)];
   const r = generateVectors({ lops: [lop], assets: [asset], obstacles, roads: [road], maxResults: 20 });
-  const viaRoad = r.candidates.filter((x) => x.kind === 'road');
+  const viaRoad = r.all.filter((x) => x.kind === 'road');
   assert.ok(viaRoad.length, JSON.stringify(r.stats));
   assert.ok(viaRoad.some((x) => x.start === 'ROLLING'));
+});
+
+test('round-the-corner approaches are found when a building blocks the straight run', () => {
+  const asset = { points: box(-10, -10, 10, 10) };
+  const lop = { id: 'L', closed: false, points: [P(-10, 20), P(10, 20)] };
+  // A building right in front of the line and two flanking walls: straight runs are short.
+  const obstacles = [box(-40, 40, 40, 80), box(-300, 20, -45, 400), box(45, 20, 300, 400)];
+  const r = generateVectors({ lops: [lop], assets: [asset], obstacles, binLength: 1, maxResults: 1000 });
+  const corner = r.candidates.filter((x) => x.kind === 'corner');
+  const open = r.candidates.filter((x) => x.kind === 'open');
+  assert.ok(corner.length, JSON.stringify(r.stats));
+  const index = makeObstacleIndex(obstacles);
+  for (const c of corner) for (const q of c.points.slice(0, -1)) assert.ok(!index.inside(q));
+  assert.ok(Math.max(...corner.map((x) => x.worst)) > Math.max(...open.map((x) => x.worst)));
 });

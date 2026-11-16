@@ -9,6 +9,9 @@ import { newProject, newVector, resolveVector, pathLength } from './model.js';
 import { makeFrame } from './frames.js';
 import { planToLocal, localToPlan, scaleFromTwoPoints, rescale, checkError, measureOnPlan, fitSimilarity } from './calibrate.js';
 import { putBlob, getBlob, deleteBlob, loadJSON, saveJSON, blobToDataURL, dataURLToBlob } from './store.js';
+import { area, perimeter, polylineLength, dist, centroid, pointInPolygon, nearestOnPolyline, offsetPolygon, simplify, rectangleFrom, minDistance } from './geometry/polygon.js';
+import { fetchOSM } from './osm.js';
+import { generateVectors } from './autogen.js';
 
 const KEY_PROJECT = 'vda-map-project-v1', KEY_MAPTILER = 'vda-maptiler-key', KEY_CALC = 'vda-tool-state-v1';
 const $ = (id) => document.getElementById(id);
@@ -26,6 +29,7 @@ let planURL = null, planImg = null; // object URL and natural size of the plan i
 let mode = null; // null | {kind:'draw', what, points:[]} | {kind:'pick', purpose, picks:[]}
 let selected = null; // {kind:'vector'|'lop'|'asset', id}
 let drag = null;
+let selectedVertex = null; // index of the selected point on the selected item
 // The site-wide key comes from config.js (written at deploy from the MAPTILER_KEY setting in
 // Vercel). A key saved in this browser overrides it; clearing the box goes back to the site key.
 const SITE_KEY = (window.VDA_CONFIG && window.VDA_CONFIG.maptilerKey) || '';
@@ -34,11 +38,12 @@ let mtKey = ownKey || SITE_KEY;
 let results = new Map(); // vector id -> computed result
 
 function blankProject() {
-  return newProject({ anchor: null, plan: null, view: { center: [-1.5, 53.0], zoom: 5 }, vectorCounter: 1 });
+  return newProject({ anchor: null, plan: null, view: { center: [-1.5, 53.0], zoom: 5 }, vectorCounter: 1, obstacles: [], osm: null, osmExcluded: [] });
 }
+project.obstacles = project.obstacles || []; project.osmExcluded = project.osmExcluded || [];
 let saveTimer;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveJSON(KEY_PROJECT, project), 250); }
-const isEmpty = () => !project.plan && !project.assets.length && !project.lops.length && !project.vectors.length;
+const isEmpty = () => !project.plan && !project.osm && !project.assets.length && !project.lops.length && !project.vectors.length && !project.obstacles?.length;
 function ensureFrame(lngLat) {
   if (frame && !isEmpty()) return;
   project.anchor = { lng: lngLat.lng, lat: lngLat.lat };
@@ -79,17 +84,25 @@ function setBasemap(kind) {
 const EMPTY = { type: 'FeatureCollection', features: [] };
 map.on('load', () => {
   map.addLayer({ id: 'plan-anchor', type: 'background', paint: { 'background-opacity': 0 } }); // keeps plan above basemap
-  for (const id of ['asset', 'lop', 'raw', 'path', 'handles', 'temp', 'picks']) map.addSource(id, { type: 'geojson', data: EMPTY });
+  for (const id of ['osm', 'obstacle', 'asset', 'lop', 'raw', 'path', 'handles', 'mids', 'temp', 'picks', 'snap']) map.addSource(id, { type: 'geojson', data: EMPTY });
+  map.addLayer({ id: 'osm-fill', type: 'fill', source: 'osm', paint: { 'fill-color': ['case', ['get', 'excluded'], '#2a9d8f', '#6b7280'], 'fill-opacity': ['case', ['get', 'sel'], 0.55, ['get', 'excluded'], 0.15, 0.3] } });
+  map.addLayer({ id: 'osm-line', type: 'line', source: 'osm', paint: { 'line-color': ['case', ['get', 'excluded'], '#2a9d8f', '#4b5563'], 'line-width': ['case', ['get', 'sel'], 2.5, 0.8], 'line-dasharray': [1, 0] } });
+  map.addLayer({ id: 'obstacle-fill', type: 'fill', source: 'obstacle', paint: { 'fill-color': '#7c3aed', 'fill-opacity': ['case', ['get', 'sel'], 0.5, 0.3] } });
+  map.addLayer({ id: 'obstacle-line', type: 'line', source: 'obstacle', paint: { 'line-color': '#7c3aed', 'line-width': 2 } });
   map.addLayer({ id: 'asset-fill', type: 'fill', source: 'asset', paint: { 'fill-color': '#1d3557', 'fill-opacity': ['case', ['get', 'sel'], 0.35, 0.2] } });
   map.addLayer({ id: 'asset-line', type: 'line', source: 'asset', paint: { 'line-color': '#1d3557', 'line-width': 2 } });
   map.addLayer({ id: 'raw', type: 'line', source: 'raw', paint: { 'line-color': '#555', 'line-width': 1.5, 'line-dasharray': [2, 2], 'line-opacity': 0.8 } });
-  map.addLayer({ id: 'path-casing', type: 'line', source: 'path', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': ['case', ['get', 'sel'], 9, 6] } });
-  map.addLayer({ id: 'path', type: 'line', source: 'path', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'colour'], 'line-width': ['case', ['get', 'sel'], 6, 3.5] } });
+  map.addLayer({ id: 'path-casing', type: 'line', source: 'path', filter: ['!=', ['get', 'status'], 'rejected'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#fff', 'line-width': ['case', ['get', 'sel'], 9, 6] } });
+  map.addLayer({ id: 'path', type: 'line', source: 'path', filter: ['==', ['get', 'status'], 'firm'], layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': ['get', 'colour'], 'line-width': ['case', ['get', 'sel'], 6, 3.5] } });
+  map.addLayer({ id: 'path-sugg', type: 'line', source: 'path', filter: ['==', ['get', 'status'], 'suggested'], layout: { 'line-join': 'round' }, paint: { 'line-color': ['get', 'colour'], 'line-width': ['case', ['get', 'sel'], 6, 3.5], 'line-dasharray': [1.5, 1] } });
+  map.addLayer({ id: 'path-rej', type: 'line', source: 'path', filter: ['==', ['get', 'status'], 'rejected'], paint: { 'line-color': '#888', 'line-width': 2, 'line-opacity': 0.5, 'line-dasharray': [1, 2] } });
   map.addLayer({ id: 'lop-line', type: 'line', source: 'lop', paint: { 'line-color': '#e63946', 'line-width': ['case', ['get', 'sel'], 7, 5] } });
   map.addLayer({ id: 'lop-dash', type: 'line', source: 'lop', paint: { 'line-color': '#fff', 'line-width': 2, 'line-dasharray': [1, 1.5] } });
   map.addLayer({ id: 'temp-line', type: 'line', source: 'temp', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#e0a100', 'line-width': 2.5, 'line-dasharray': [2, 1] } });
   map.addLayer({ id: 'temp-pts', type: 'circle', source: 'temp', filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 4, 'circle-color': '#e0a100', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
-  map.addLayer({ id: 'handles', type: 'circle', source: 'handles', paint: { 'circle-radius': 6, 'circle-color': '#fff', 'circle-stroke-color': '#1d3557', 'circle-stroke-width': 2.5 } });
+  map.addLayer({ id: 'mids', type: 'circle', source: 'mids', paint: { 'circle-radius': ['case', ['get', 'coarse'], 7, 4], 'circle-color': '#1d3557', 'circle-opacity': 0.6, 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
+  map.addLayer({ id: 'handles', type: 'circle', source: 'handles', paint: { 'circle-radius': ['case', ['get', 'coarse'], 10, 6], 'circle-color': ['case', ['get', 'sel'], '#e0a100', '#fff'], 'circle-stroke-color': '#1d3557', 'circle-stroke-width': 2.5 } });
+  map.addLayer({ id: 'snap', type: 'circle', source: 'snap', paint: { 'circle-radius': 9, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#e0a100', 'circle-stroke-width': 3 } });
   map.addLayer({ id: 'picks', type: 'circle', source: 'picks', paint: { 'circle-radius': 6, 'circle-color': ['get', 'colour'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
   $('basemap').value = project.basemap || 'streets';
   setBasemap($('basemap').value);
@@ -232,113 +245,300 @@ $('pick-form').addEventListener('submit', (e) => {
 });
 $('pick-cancel').addEventListener('click', cancelMode);
 
-// ---------- drawing ----------
-const DRAW_MIN = { asset: 3, lop: 2, vector: 2 };
-document.querySelectorAll('[data-draw]').forEach((b) => b.addEventListener('click', () => {
+// ---------- history (undo) ----------
+const history = [];
+function pushHistory() {
+  history.push(JSON.stringify({ assets: project.assets, lops: project.lops, vectors: project.vectors, obstacles: project.obstacles, osmExcluded: project.osmExcluded, vectorCounter: project.vectorCounter }));
+  if (history.length > 50) history.shift();
+}
+function undo() {
+  const snap = history.pop();
+  if (!snap) { $('osm-status').textContent = 'Nothing to undo.'; return; }
+  Object.assign(project, JSON.parse(snap));
+  selected = null; selectedVertex = null; save(); renderAll();
+}
+$('undo').addEventListener('click', undo);
+
+// ---------- tools ----------
+const TOOLS = {
+  'asset-tap': { kind: 'tap', title: 'Tap the building to protect', hint: 'Its outline comes from OpenStreetMap. Zoom in close enough to see the buildings.' },
+  'asset-draw': { kind: 'draw', what: 'asset', min: 3, closed: true, title: 'Draw the asset outline', hint: 'Tap each corner. Finish when the outline is complete.' },
+  'asset-rect': { kind: 'draw', what: 'asset', min: 3, max: 3, rect: true, closed: true, title: 'Draw a rectangle', hint: 'Tap two corners along one side, then tap how deep it goes.' },
+  'lop-draw': { kind: 'draw', what: 'lop', min: 2, title: 'Draw the line of protection', hint: 'Tap along the line where vehicles must be stopped.' },
+  'lop-loop': { kind: 'draw', what: 'lop', min: 3, closed: true, title: 'Draw a closed line of protection', hint: 'Tap round the protected area. The loop closes itself when you finish.' },
+  'obstacle-draw': { kind: 'draw', what: 'obstacle', min: 3, closed: true, title: 'Draw an obstacle', hint: 'Something a vehicle cannot pass through: a wall, an existing rated barrier, water.' },
+  'vector-draw': { kind: 'draw', what: 'vector', min: 2, title: 'Draw an attack vector', hint: 'Start where the attack could begin and finish across the line of protection.' },
+};
+document.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => startTool(b.dataset.tool, b)));
+function startTool(name, button) {
   cancelMode();
-  mode = { kind: 'draw', what: b.dataset.draw, points: [] };
+  const t = TOOLS[name];
+  mode = { ...t, tool: name, points: [] };
   document.body.classList.add('drawing');
   map.doubleClickZoom.disable();
-  b.classList.add('on');
+  button?.classList.add('on');
+  $('drawbar').hidden = false;
+  $('db-title').textContent = t.title;
+  $('db-hint').textContent = t.hint;
+  $('db-undo').hidden = $('db-finish').hidden = t.kind === 'tap' || !!t.rect;
+  if (t.kind === 'tap' && !project.osm) loadOSM(map.getCenter());
   renderTemp();
-}));
+}
 function cancelMode() {
   mode = null;
   document.body.classList.remove('drawing');
-  document.querySelectorAll('[data-draw]').forEach((b) => b.classList.remove('on'));
+  document.querySelectorAll('[data-tool]').forEach((b) => b.classList.remove('on'));
   map.doubleClickZoom.enable();
   $('pick-box').hidden = true;
-  setData('picks', EMPTY); setData('temp', EMPTY);
+  $('drawbar').hidden = true;
+  setData('picks', EMPTY); setData('temp', EMPTY); setData('snap', EMPTY);
 }
+$('db-cancel').addEventListener('click', cancelMode);
+$('db-finish').addEventListener('click', () => finishDraw());
+$('db-undo').addEventListener('click', () => { if (mode?.points) { mode.points.pop(); renderTemp(); } });
+
+// ---------- snapping ----------
+const SNAP_PX = () => (matchMedia('(pointer: coarse)').matches ? 16 : 10);
+const metresPerPixel = () => (40075016.686 * Math.cos((map.getCenter().lat * Math.PI) / 180)) / (512 * 2 ** map.getZoom());
+function snapShapes(exclude) {
+  const out = [];
+  const add2 = (kind, id, pts, closed) => { if (!(exclude && exclude.kind === kind && exclude.id === id)) out.push({ pts, closed }); };
+  project.assets.forEach((a) => add2('asset', a.id, a.points, true));
+  project.lops.forEach((l) => add2('lop', l.id, l.points, !!l.closed));
+  (project.obstacles || []).forEach((o) => add2('obstacle', o.id, o.points, true));
+  for (const b of osmBuildings()) out.push({ pts: b.points, closed: true });
+  return out;
+}
+// Returns {p, how} with p in local metres.
+function snap(lngLat, exclude) {
+  const p = toLocal(lngLat);
+  if (!$('snap').checked) return { p, how: null };
+  const tol = SNAP_PX() * metresPerPixel();
+  let best = null;
+  const shapes = snapShapes(exclude);
+  if (mode?.points?.length) shapes.push({ pts: mode.points, closed: false });
+  for (const s of shapes) for (const q of s.pts) { const d = dist(p, q); if (d < tol && (!best || d < best.d)) best = { p: q, d, how: 'point' }; }
+  if (best) return best;
+  for (const s of shapes) {
+    if (s.pts.length < 2) continue;
+    const r = nearestOnPolyline(p, s.pts, s.closed);
+    if (r.d < tol * 0.8 && (!best || r.d < best.d)) best = { p: r.point, d: r.d, how: 'edge' };
+  }
+  return best || { p, how: null };
+}
+function showSnap(s) {
+  setData('snap', s && s.how ? { type: 'FeatureCollection', features: [{ type: 'Feature', properties: { how: s.how }, geometry: { type: 'Point', coordinates: toLL(s.p) } }] } : EMPTY);
+}
+
+// ---------- drawing ----------
 function drawClick(e) {
   const pts = mode.points;
   if (!pts.length) ensureFrame(e.lngLat); // never re-anchor mid-drawing: earlier points use the frame
+  const s = snap(e.lngLat);
   if (pts.length) {
     const last = map.project(toLL(pts[pts.length - 1]));
     if (Math.hypot(last.x - e.point.x, last.y - e.point.y) < 4) return; // second click of a double-click
+    // Tapping the first point closes a shape.
+    const first = map.project(toLL(pts[0]));
+    if (mode.closed && pts.length >= mode.min && Math.hypot(first.x - e.point.x, first.y - e.point.y) < SNAP_PX()) { finishDraw(); return; }
   }
-  pts.push(toLocal(e.lngLat));
+  pts.push(s.p);
+  if (mode.max && pts.length >= mode.max) { finishDraw(); return; }
   renderTemp();
 }
 function finishDraw() {
-  const { what, points } = mode;
-  if (points.length < DRAW_MIN[what]) { cancelMode(); return; }
+  if (!mode || mode.kind !== 'draw') return;
+  const { what, min } = mode;
+  let points = mode.points;
+  if (points.length < min) { $('db-hint').textContent = `Add at least ${min} points first, or cancel.`; return; }
+  if (mode.rect) points = rectangleFrom(points[0], points[1], points[2]);
+  pushHistory();
   if (what === 'asset') { const a = { id: uid('ast'), name: `Asset ${project.assets.length + 1}`, points }; project.assets.push(a); selected = { kind: 'asset', id: a.id }; }
-  if (what === 'lop') { const l = { id: uid('lop'), name: `Line ${project.lops.length + 1}`, points }; project.lops.push(l); selected = { kind: 'lop', id: l.id }; }
+  if (what === 'lop') { const l = { id: uid('lop'), name: `Line ${project.lops.length + 1}`, points, closed: !!mode.closed }; project.lops.push(l); selected = { kind: 'lop', id: l.id }; }
+  if (what === 'obstacle') { project.obstacles = project.obstacles || []; const o = { id: uid('obs'), name: `Obstacle ${project.obstacles.length + 1}`, points }; project.obstacles.push(o); selected = { kind: 'obstacle', id: o.id }; }
   if (what === 'vector') {
-    const v = newVector({ name: `V${project.vectorCounter++}`, source: 'drawn', points, vertexOptions: [] });
+    const v = newVector({ name: `V${project.vectorCounter++}`, source: 'drawn', status: 'drawn', points, vertexOptions: [] });
     project.vectors.push(v); selected = { kind: 'vector', id: v.id };
   }
+  selectedVertex = null;
   cancelMode(); save(); renderAll();
 }
 let mouseLL = null;
 function renderTemp() {
-  if (!mode || mode.kind !== 'draw') return setData('temp', EMPTY);
-  const coords = mode.points.map(toLL);
-  const line = mouseLL ? [...coords, [mouseLL.lng, mouseLL.lat]] : coords;
-  if (mode.what === 'asset' && line.length > 2) line.push(coords[0]);
+  if (!mode || mode.kind !== 'draw') { setData('temp', EMPTY); if (mode?.kind === 'tap') $('db-measure').textContent = ''; return; }
+  let pts = mode.points.slice();
+  const cursor = mouseLL ? snap(mouseLL).p : null;
+  if (cursor) pts.push(cursor);
+  if (mode.rect && pts.length === 3) pts = rectangleFrom(pts[0], pts[1], pts[2]);
+  const coords = pts.map(toLL);
+  const ring = mode.closed && coords.length > 2 ? [...coords, coords[0]] : coords;
   setData('temp', { type: 'FeatureCollection', features: [
-    ...(line.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: line } }] : []),
-    ...coords.map((c) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: c } })),
+    ...(ring.length > 1 ? [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: ring } }] : []),
+    ...mode.points.map((p) => ({ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: toLL(p) } })),
   ] });
+  // Live measurements.
+  const parts = [];
+  if (pts.length >= 2) parts.push(`segment ${dist(pts[pts.length - 2], pts[pts.length - 1]).toFixed(1)} m`);
+  if (pts.length >= 3 && mode.closed) parts.push(`area ${Math.round(area(pts)).toLocaleString()} m²`);
+  if (pts.length >= 2) parts.push(`${mode.closed && pts.length > 2 ? 'perimeter' : 'length'} ${(mode.closed && pts.length > 2 ? perimeter(pts) : polylineLength(pts)).toFixed(1)} m`);
+  $('db-measure').textContent = parts.join(' · ');
 }
 
+// ---------- tap a building ----------
+async function tapBuilding(lngLat) {
+  ensureFrame(lngLat);
+  if (!project.osm || dist(toLocal(lngLat), project.osm.centre) > project.osm.radius - 50) await loadOSM(lngLat);
+  const p = toLocal(lngLat);
+  const b = osmBuildings(true).find((x) => pointInPolygon(p, x.points));
+  if (!b) { $('db-hint').textContent = 'No building outline there. Zoom in and tap inside a building, or draw the outline instead.'; return; }
+  pushHistory();
+  const a = { id: uid('ast'), name: `Asset ${project.assets.length + 1}`, points: b.points.map((q) => ({ ...q })), osmId: b.id };
+  project.assets.push(a);
+  selected = { kind: 'asset', id: a.id };
+  cancelMode(); save(); renderAll();
+}
+
+// ---------- OpenStreetMap buildings and roads ----------
+const osmBuildings = (includeExcluded) => (project.osm?.buildings || []).filter((b) => includeExcluded || !(project.osmExcluded || []).includes(b.id));
+let osmLoading = null;
+async function loadOSM(centreLL) {
+  if (osmLoading) return osmLoading;
+  ensureFrame(centreLL);
+  const radius = Math.max(500, (+$('ag-radius').value || 440) + 100);
+  $('osm-status').textContent = 'Loading buildings and roads from OpenStreetMap…';
+  osmLoading = fetchOSM({ lat: centreLL.lat, lng: centreLL.lng }, radius).then((d) => {
+    project.osm = {
+      centre: toLocal(centreLL), radius, at: new Date().toISOString(),
+      buildings: d.buildings.map((b) => ({ id: b.id, points: b.ll.map(toLocal) })),
+      roads: d.roads.map((r) => ({ id: r.id, kind: r.kind, points: r.ll.map(toLocal) })),
+    };
+    $('osm-status').textContent = `${d.buildings.length} buildings and ${d.roads.length} roads loaded within ${radius} m. Tap a building to see it or mark it as not an obstacle.`;
+    save(); renderAll();
+  }).catch((e) => { $('osm-status').textContent = `Could not load map data: ${e.message}`; }).finally(() => { osmLoading = null; });
+  return osmLoading;
+}
+$('osm-load').addEventListener('click', () => {
+  const a = project.assets[0];
+  loadOSM(a && frame ? (() => { const c = centroid(a.points), ll = toLL(c); return { lng: ll[0], lat: ll[1] }; })() : map.getCenter());
+});
+
+// ---------- line of protection around the asset ----------
+$('lop-auto').addEventListener('click', () => {
+  const a = findItem(selected?.kind === 'asset' ? selected : null) || project.assets[project.assets.length - 1];
+  if (!a) { $('osm-status').textContent = 'Add an asset first: tap a building or draw one.'; return; }
+  const d = parseFloat($('standoff').value);
+  if (!(d > 0)) { $('osm-status').textContent = 'Enter a standoff above 0 m.'; return; }
+  pushHistory();
+  const l = { id: uid('lop'), name: `Line ${project.lops.length + 1} (${d} m round ${a.name})`, points: simplify(offsetPolygon(a.points, d), 0.05), closed: true, standoff: d, assetId: a.id };
+  project.lops.push(l);
+  selected = { kind: 'lop', id: l.id }; selectedVertex = null;
+  save(); renderAll();
+});
+
+// ---------- map interaction ----------
 map.on('click', (e) => {
   if (drag?.moved) return;
   if (mode?.kind === 'draw') return drawClick(e);
+  if (mode?.kind === 'tap') return tapBuilding(e.lngLat);
   if (mode?.kind === 'pick') return pickClick(e.lngLat);
-  const hits = map.queryRenderedFeatures([[e.point.x - 4, e.point.y - 4], [e.point.x + 4, e.point.y + 4]], { layers: ['path', 'raw', 'lop-line', 'asset-fill'] });
-  const f = hits[0];
+  const box = [[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]];
+  const h = map.queryRenderedFeatures(box, { layers: ['handles'] })[0];
+  if (h) { selectedVertex = h.properties.idx; renderAll(); return; }
+  const f = map.queryRenderedFeatures(box, { layers: ['path', 'path-sugg', 'path-rej', 'raw', 'lop-line', 'asset-fill', 'obstacle-fill', 'osm-fill'] })[0];
   selected = f ? { kind: f.properties.kind, id: f.properties.id } : null;
+  selectedVertex = null;
   renderAll();
 });
-map.on('dblclick', (e) => { if (mode?.kind === 'draw') { e.preventDefault(); finishDraw(); } });
-map.on('mousemove', (e) => {
-  mouseLL = e.lngLat;
-  if (mode?.kind === 'draw') renderTemp();
+map.on('dblclick', (e) => {
+  if (mode?.kind === 'draw') { e.preventDefault(); finishDraw(); return; }
+  const h = map.queryRenderedFeatures([[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]], { layers: ['handles'] })[0];
+  if (h) { e.preventDefault(); selectedVertex = h.properties.idx; deleteVertex(); }
+});
+function pointerMove(lngLat) {
+  mouseLL = lngLat;
+  if (mode?.kind === 'draw') { renderTemp(); showSnap(snap(lngLat)); }
   if (drag) {
     drag.moved = true;
     const item = findItem(drag);
-    item.points[drag.idx] = toLocal(e.lngLat);
-    if (drag.kind === 'plan') return;
+    const s = snap(lngLat, drag);
+    item.points[drag.idx] = s.p;
+    showSnap(s);
     renderAll(true);
   }
-});
-map.on('mouseenter', 'handles', () => { if (!mode) map.getCanvas().style.cursor = 'move'; });
-map.on('mouseleave', 'handles', () => { map.getCanvas().style.cursor = ''; });
-map.on('mousedown', 'handles', (e) => {
+}
+map.on('mousemove', (e) => pointerMove(e.lngLat));
+map.on('touchmove', (e) => { if (drag) { e.preventDefault(); pointerMove(e.lngLat); } });
+for (const layer of ['handles', 'mids']) {
+  map.on('mouseenter', layer, () => { if (!mode) map.getCanvas().style.cursor = 'move'; });
+  map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
+}
+function beginDrag(e, layer) {
   if (mode) return;
   e.preventDefault();
   const p = e.features[0].properties;
-  drag = { kind: p.kind, id: p.id, idx: p.idx, moved: false };
+  if (layer === 'mids') {
+    const item = findItem({ kind: p.kind, id: p.id });
+    pushHistory();
+    item.points.splice(p.idx + 1, 0, toLocal(e.lngLat));
+    drag = { kind: p.kind, id: p.id, idx: p.idx + 1, moved: true, pushed: true };
+  } else drag = { kind: p.kind, id: p.id, idx: p.idx, moved: false };
+  selectedVertex = drag.idx;
   map.dragPan.disable();
-});
-map.on('mouseup', () => {
+}
+map.on('mousedown', 'handles', (e) => beginDrag(e, 'handles'));
+map.on('mousedown', 'mids', (e) => beginDrag(e, 'mids'));
+map.on('touchstart', 'handles', (e) => beginDrag(e, 'handles'));
+map.on('touchstart', 'mids', (e) => beginDrag(e, 'mids'));
+function endDrag() {
   if (!drag) return;
   map.dragPan.enable();
-  const moved = drag.moved;
+  const d = drag;
   setTimeout(() => { drag = null; }, 0);
-  if (moved) { save(); renderAll(); }
-});
+  showSnap(null);
+  if (d.moved) {
+    if (!d.pushed) { // record the state from before the drag so undo puts the point back
+      const item = findItem(d), now = item.points[d.idx];
+      item.points[d.idx] = d.from || now; pushHistory(); item.points[d.idx] = now;
+    }
+    save(); renderAll();
+  }
+}
+map.on('mouseup', endDrag);
+map.on('touchend', endDrag);
+map.on('mousedown', 'handles', () => { if (drag && !drag.from) { const it = findItem(drag); drag.from = { ...it.points[drag.idx] }; } });
+map.on('touchstart', 'handles', () => { if (drag && !drag.from) { const it = findItem(drag); drag.from = { ...it.points[drag.idx] }; } });
+
 document.addEventListener('keydown', (e) => {
   const typing = /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName);
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); if (mode?.points?.length) { mode.points.pop(); renderTemp(); } else undo(); return; }
   if (mode?.kind === 'draw' && !typing) {
     if (e.key === 'Enter') { e.preventDefault(); finishDraw(); }
     if (e.key === 'Escape') cancelMode();
     if (e.key === 'Backspace') { e.preventDefault(); mode.points.pop(); renderTemp(); }
-  } else if (mode?.kind === 'pick' && e.key === 'Escape') cancelMode();
-  else if (!mode && !typing && selected && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); deleteSelected(); }
+  } else if ((mode?.kind === 'pick' || mode?.kind === 'tap') && e.key === 'Escape') cancelMode();
+  else if (!mode && !typing && selected && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); if (selectedVertex != null) deleteVertex(); else deleteSelected(); }
 });
 
-const listOf = (kind) => (kind === 'vector' ? project.vectors : kind === 'lop' ? project.lops : project.assets);
-const findItem = (ref) => ref && listOf(ref.kind).find((x) => x.id === ref.id);
+const MIN_POINTS = { asset: 3, obstacle: 3, lop: 2, vector: 2 };
+const listOf = (kind) => (kind === 'vector' ? project.vectors : kind === 'lop' ? project.lops : kind === 'obstacle' ? (project.obstacles = project.obstacles || []) : kind === 'osm' ? osmBuildings(true) : project.assets);
+const findItem = (ref) => ref && listOf(ref.kind).find((x) => String(x.id) === String(ref.id));
+function deleteVertex() {
+  const item = findItem(selected);
+  if (!item || selectedVertex == null || selected.kind === 'osm') return;
+  const min = (selected.kind === 'lop' && item.closed) ? 3 : MIN_POINTS[selected.kind];
+  if (item.points.length <= min) { $('osm-status').textContent = `A ${selected.kind === 'lop' ? 'line' : selected.kind} needs at least ${min} points.`; return; }
+  pushHistory();
+  item.points.splice(selectedVertex, 1);
+  selectedVertex = null; save(); renderAll();
+}
 function deleteSelected() {
-  if (!selected) return;
+  if (!selected || selected.kind === 'osm') return;
+  pushHistory();
   const list = listOf(selected.kind);
   const i = list.findIndex((x) => x.id === selected.id);
   if (i >= 0) list.splice(i, 1);
   if (selected.kind === 'lop') project.vectors.forEach((v) => { if (v.lopId === selected.id) v.lopId = null; });
-  selected = null; save(); renderAll();
+  selected = null; selectedVertex = null; save(); renderAll();
 }
 
 // ---------- results ----------
@@ -369,29 +569,49 @@ function pathCoords(pieces) {
   return out;
 }
 
-let tags = [];
+let tags = [], segTags = [];
 function renderAll(fast) {
   if (!map.getSource('path')) return;
   results = new Map(project.vectors.map((v) => [v.id, compute(v)]));
   const sel = (kind, id) => !!selected && selected.kind === kind && selected.id === id;
   const line = (coords, props) => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } });
   setData('asset', { type: 'FeatureCollection', features: frame ? project.assets.map((a) => ({ type: 'Feature', properties: { kind: 'asset', id: a.id, sel: sel('asset', a.id) }, geometry: { type: 'Polygon', coordinates: [[...a.points.map(toLL), toLL(a.points[0])]] } })) : [] });
-  setData('lop', { type: 'FeatureCollection', features: frame ? project.lops.map((l) => line(l.points.map(toLL), { kind: 'lop', id: l.id, sel: sel('lop', l.id) })) : [] });
+  setData('lop', { type: 'FeatureCollection', features: frame ? project.lops.map((l) => line((l.closed ? [...l.points, l.points[0]] : l.points).map(toLL), { kind: 'lop', id: l.id, sel: sel('lop', l.id) })) : [] });
+  const poly = (pts, props) => ({ type: 'Feature', properties: props, geometry: { type: 'Polygon', coordinates: [[...pts.map(toLL), toLL(pts[0])]] } });
+  setData('obstacle', { type: 'FeatureCollection', features: frame ? project.obstacles.map((o) => poly(o.points, { kind: 'obstacle', id: o.id, sel: sel('obstacle', o.id) })) : [] });
+  setData('osm', { type: 'FeatureCollection', features: frame ? osmBuildings(true).map((b) => poly(b.points, { kind: 'osm', id: b.id, sel: sel('osm', b.id), excluded: project.osmExcluded.includes(b.id) })) : [] });
+  $('obs-count').textContent = `${osmBuildings().length + project.obstacles.length} obstacles`;
   const raw = [], path = [];
   for (const v of project.vectors) {
     const r = results.get(v.id);
     raw.push(line(v.points.map(toLL), { kind: 'vector', id: v.id }));
-    if (r.speeds && r.pieces?.length) path.push(line(pathCoords(r.pieces), { kind: 'vector', id: v.id, sel: sel('vector', v.id), colour: bandColour(r.worst) }));
+    const status = v.status === 'suggested' || v.status === 'rejected' ? v.status : 'firm';
+    if (r.speeds && r.pieces?.length) path.push(line(pathCoords(r.pieces), { kind: 'vector', id: v.id, sel: sel('vector', v.id), colour: bandColour(r.worst), status }));
   }
   setData('raw', { type: 'FeatureCollection', features: raw });
   setData('path', { type: 'FeatureCollection', features: path });
   const item = findItem(selected);
-  setData('handles', { type: 'FeatureCollection', features: item ? item.points.map((p, idx) => ({ type: 'Feature', properties: { kind: selected.kind, id: item.id, idx }, geometry: { type: 'Point', coordinates: toLL(p) } })) : [] });
+  const coarse = matchMedia('(pointer: coarse)').matches;
+  const editable = item && selected.kind !== 'osm';
+  setData('handles', { type: 'FeatureCollection', features: editable ? item.points.map((p, idx) => ({ type: 'Feature', properties: { kind: selected.kind, id: item.id, idx, coarse, sel: idx === selectedVertex }, geometry: { type: 'Point', coordinates: toLL(p) } })) : [] });
+  const closedItem = editable && (selected.kind === 'asset' || selected.kind === 'obstacle' || (selected.kind === 'lop' && item.closed));
+  const edges = editable ? item.points.map((p, i) => [p, item.points[i + 1] ?? (closedItem ? item.points[0] : null), i]).filter((e) => e[1]) : [];
+  setData('mids', { type: 'FeatureCollection', features: edges.map(([a, b, idx]) => ({ type: 'Feature', properties: { kind: selected.kind, id: item.id, idx, coarse }, geometry: { type: 'Point', coordinates: toLL({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }) } })) });
+  // Edge lengths on the selected shape.
+  segTags.forEach((t) => t.remove()); segTags = [];
+  if (item && selected.kind !== 'vector') {
+    const allEdges = item.points.map((p, i) => [p, item.points[i + 1] ?? (selected.kind !== 'lop' || item.closed ? item.points[0] : null)]).filter((e) => e[1]);
+    if (allEdges.length <= 40) for (const [a, b] of allEdges) {
+      const L = dist(a, b); if (L < 2) continue;
+      const el = document.createElement('div'); el.className = 'seg-tag'; el.textContent = `${L.toFixed(1)} m`;
+      segTags.push(new maplibregl.Marker({ element: el }).setLngLat(toLL({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 })).addTo(map));
+    }
+  }
   // Speed tags at each LoP crossing.
   tags.forEach((t) => t.remove()); tags = [];
   for (const v of project.vectors) {
     const r = results.get(v.id);
-    if (!r.speeds) continue;
+    if (!r.speeds || v.status === 'rejected') continue;
     const el = document.createElement('div');
     el.className = 'speed-tag'; el.style.setProperty('--c', bandColour(r.worst));
     el.textContent = `${v.name} · ${Math.round(conv(r.worst))}`;
@@ -407,11 +627,13 @@ function setData(id, data) { const s = map.getSource(id); if (s) s.setData(data)
 function renderList() {
   $('vec-count').textContent = project.vectors.length ? `${project.vectors.length}` : '';
   $('unit').value = project.settings.unit;
-  $('vec-list').innerHTML = project.vectors.map((v) => {
+  const order = (v) => (v.status === 'rejected' ? 1 : 0);
+  $('vec-list').innerHTML = [...project.vectors].sort((a, b) => order(a) - order(b) || (results.get(b.id)?.worst || 0) - (results.get(a.id)?.worst || 0)).map((v) => {
     const r = results.get(v.id);
     const val = r?.speeds ? `${Math.round(conv(r.worst))} ${unitName()}` : '—';
-    return `<li><button data-vec="${v.id}" class="${selected?.kind === 'vector' && selected.id === v.id ? 'sel' : ''}"><span class="sw" style="background:${r?.speeds ? bandColour(r.worst) : '#bbb'}"></span><span>${esc(v.name)}</span><span class="v">${val}</span></button></li>`;
-  }).join('') || '<li class="hint">No vectors yet. Draw a line of protection, then a vector from where an attack could start, across the line.</li>';
+    const badge = v.status === 'suggested' ? '<span class="badge sugg">suggested</span>' : v.status === 'accepted' ? '<span class="badge acc">accepted</span>' : v.status === 'rejected' ? '<span class="badge rej">rejected</span>' : '';
+    return `<li class="${v.status === 'rejected' ? 'rejected' : ''}"><button data-vec="${v.id}" class="${selected?.kind === 'vector' && selected.id === v.id ? 'sel' : ''}"><span class="sw" style="background:${r?.speeds ? bandColour(r.worst) : '#bbb'}"></span><span>${esc(v.name)}${badge}</span><span class="v">${val}</span></button></li>`;
+  }).join('') || '<li class="hint">No vectors yet. Add a line of protection, then press "Find attack vectors" or draw one yourself.</li>';
 }
 $('vec-list').addEventListener('click', (e) => {
   const b = e.target.closest('[data-vec]'); if (!b) return;
@@ -423,11 +645,7 @@ function renderDetail() {
   const box = $('vec-detail');
   const item = findItem(selected);
   if (!item) { box.innerHTML = ''; return; }
-  if (selected.kind !== 'vector') {
-    box.innerHTML = `<h3>${esc(item.name)}</h3><p class="hint">${selected.kind === 'lop' ? 'Line of protection' : 'Asset'} with ${item.points.length} points. Drag a point to move it.</p><div class="btnrow"><button id="d-del" class="quiet">Delete</button></div>`;
-    $('d-del').onclick = deleteSelected;
-    return;
-  }
+  if (selected.kind !== 'vector') { renderShapeDetail(box, item); return; }
   const v = item, r = results.get(v.id);
   let html = `<h3>${esc(v.name)}</h3>
     <label>Name <input id="d-name" value="${esc(v.name)}" maxlength="40"></label>
@@ -437,6 +655,11 @@ function renderDetail() {
       <option value="ROLLING"${v.start === 'ROLLING' ? ' selected' : ''}>Rolling start (already at top speed)</option></select></label>
     ${v.start === 'ENTRY' ? `<div class="entry">Entry speed <input id="d-entry" type="number" min="0" step="any" value="${v.entryKph ? +conv(v.entryKph).toFixed(1) : ''}" aria-label="Entry speed"> ${unitName()}</div>` : ''}
     <p class="hint">${v.start === 'STANDING' ? 'Start the vector where a vehicle can be stationary: a parking bay, loading area, queue, stop line or gate.' : v.start === 'ROLLING' ? 'Assumes an unlimited run-up before the start point. Most conservative; better to extend the vector back to a real stopping place and use a standing start.' : 'Use the speed a vehicle can reach on the road leading to the start point.'}</p>`;
+  if (v.source === 'generated') {
+    html += `<div class="review"><p class="hint"><b>Found automatically.</b> ${esc(v.note || '')}</p>${v.status === 'rejected' ? `<p class="hint">Rejected: ${esc(v.statusReason || '')}</p>` : ''}
+      <div class="btnrow">${v.status !== 'accepted' ? '<button id="d-accept" class="primary">Accept</button>' : ''}${v.status !== 'rejected' ? '<button id="d-reject">Reject…</button>' : ''}</div>
+      <form id="d-reject-form" class="inline" hidden><input id="d-reason" placeholder="Reason, e.g. bollards already stop this" aria-label="Reason for rejecting"><button>Reject</button></form></div>`;
+  }
   html += r.errors.map((m) => `<p class="err">${esc(m)}</p>`).join('');
   html += (r.warnings || []).map((m) => `<p class="wrn">${esc(m)}</p>`).join('');
   if (r.speeds) {
@@ -460,6 +683,14 @@ function renderDetail() {
   box.innerHTML = html;
   if (focusId) (document.getElementById(focusId) || box.querySelector(`[data-bend="${focusId}"]`))?.focus();
   $('d-name').onchange = (e) => { v.name = e.target.value.trim() || v.name; save(); renderAll(); };
+  if ($('d-accept')) $('d-accept').onclick = () => { pushHistory(); v.status = 'accepted'; v.statusReason = ''; save(); renderAll(); };
+  if ($('d-reject')) $('d-reject').onclick = () => { $('d-reject-form').hidden = false; $('d-reason').focus(); };
+  if ($('d-reject-form')) $('d-reject-form').onsubmit = (e) => {
+    e.preventDefault();
+    const why = $('d-reason').value.trim();
+    if (!why) { $('d-reason').placeholder = 'A reason is needed to reject'; $('d-reason').focus(); return; }
+    pushHistory(); v.status = 'rejected'; v.statusReason = why; save(); renderAll();
+  };
   $('d-start').onchange = (e) => { v.start = e.target.value; save(); renderAll(); };
   if ($('d-entry')) $('d-entry').onchange = (e) => { const x = parseFloat(e.target.value); v.entryKph = x > 0 ? (project.settings.unit === 'MPH' ? x * KPH_PER_MPH : x) : 0; save(); renderAll(); };
   $('d-copy').onclick = async (e) => {
@@ -586,7 +817,7 @@ function vectorTable(v, r) {
   });
 }
 $('copy-all').addEventListener('click', async (e) => {
-  const ok = project.vectors.map((v) => [v, results.get(v.id)]).filter(([, r]) => r?.speeds);
+  const ok = project.vectors.filter((v) => v.status !== 'suggested' && v.status !== 'rejected').map((v) => [v, results.get(v.id)]).filter(([, r]) => r?.speeds);
   if (!ok.length) { flash(e.target, false, '', 'No vectors with results yet'); return; }
   const t = reportTable({
     title: titled('Impact speeds at the line of protection'), numericFrom: 1,
@@ -602,3 +833,79 @@ const bgColour = () => (document.documentElement.dataset.theme === 'light' ? '#e
 const applyMapTheme = () => { if (map.getLayer('bg')) map.setPaintProperty('bg', 'background-color', bgColour()); };
 document.addEventListener('themechange', applyMapTheme);
 map.on('load', applyMapTheme);
+
+// ---------- shape details ----------
+function renderShapeDetail(box, item) {
+  const k = selected.kind;
+  const facts = [];
+  let buttons = '';
+  if (k === 'asset' || k === 'obstacle' || k === 'osm') {
+    facts.push(['Area', `${Math.round(area(item.points)).toLocaleString()} m²`], ['Perimeter', `${perimeter(item.points).toFixed(1)} m`]);
+  }
+  if (k === 'lop') {
+    facts.push(['Length', `${(item.closed ? perimeter(item.points) : polylineLength(item.points)).toFixed(1)} m${item.closed ? ' (closed loop)' : ''}`]);
+    if (project.assets.length) {
+      const d = Math.min(...project.assets.map((a) => minDistance(item.points, !!item.closed, a.points, true)));
+      facts.push(['Nearest standoff to an asset', `${d.toFixed(1)} m`]);
+    }
+  }
+  facts.push(['Points', item.points.length]);
+  const title = k === 'osm' ? 'Building (OpenStreetMap)' : esc(item.name);
+  if (k === 'asset') buttons += '<button id="s-lop">Line of protection round this asset</button>';
+  if (k === 'lop') buttons += `<label class="chk"><input type="checkbox" id="s-closed"${item.closed ? ' checked' : ''}> Closed loop</label>`;
+  if (k === 'osm') {
+    const ex = project.osmExcluded.includes(item.id);
+    buttons += `<button id="s-exclude">${ex ? 'Count it as an obstacle' : 'Not an obstacle'}</button><button id="s-asset">Make it the asset</button>`;
+  }
+  if (k !== 'osm' && selectedVertex != null) buttons += `<button id="s-delpt">Delete point ${selectedVertex + 1}</button>`;
+  if (k !== 'osm') buttons += `<button id="s-del" class="quiet">Delete ${k === 'lop' ? 'line' : k}</button>`;
+  box.innerHTML = `<h3>${title}</h3>
+    ${k !== 'osm' ? `<label>Name <input id="s-name" value="${esc(item.name)}" maxlength="60"></label>` : `<p class="hint">${project.osmExcluded.includes(item.id) ? 'Marked as not an obstacle: vehicles may drive through it.' : 'Counts as an obstacle: vehicles cannot drive through it.'}</p>`}
+    <dl class="facts">${facts.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('')}</dl>
+    ${k !== 'osm' ? '<p class="hint">Drag a point to move it, drag a small dot between points to add one, tap a point then Delete point to remove it.</p>' : ''}
+    <div class="btnrow">${buttons}</div>`;
+  if ($('s-name')) $('s-name').onchange = (e) => { pushHistory(); item.name = e.target.value.trim() || item.name; save(); renderAll(); };
+  if ($('s-lop')) $('s-lop').onclick = () => $('lop-auto').click();
+  if ($('s-closed')) $('s-closed').onchange = (e) => { if (e.target.checked && item.points.length < 3) { e.target.checked = false; return; } pushHistory(); item.closed = e.target.checked; save(); renderAll(); };
+  if ($('s-exclude')) $('s-exclude').onclick = () => { pushHistory(); const i = project.osmExcluded.indexOf(item.id); if (i >= 0) project.osmExcluded.splice(i, 1); else project.osmExcluded.push(item.id); save(); renderAll(); };
+  if ($('s-asset')) $('s-asset').onclick = () => { pushHistory(); const a = { id: uid('ast'), name: `Asset ${project.assets.length + 1}`, points: item.points.map((q) => ({ ...q })), osmId: item.id }; project.assets.push(a); selected = { kind: 'asset', id: a.id }; save(); renderAll(); };
+  if ($('s-delpt')) $('s-delpt').onclick = deleteVertex;
+  if ($('s-del')) $('s-del').onclick = deleteSelected;
+}
+
+// ---------- find attack vectors ----------
+$('ag-run').addEventListener('click', async () => {
+  if (!project.lops.length) { $('ag-status').textContent = 'Add a line of protection first (Site → Line of protection).'; return; }
+  const radius = Math.min(1000, Math.max(50, +$('ag-radius').value || 440));
+  const keep = Math.min(50, Math.max(1, +$('ag-max').value || 10));
+  const btn = $('ag-run'); btn.disabled = true;
+  try {
+    if (!project.osm) {
+      $('ag-status').textContent = 'Loading buildings and roads first…';
+      const c = centroid(project.lops[0].points), ll = toLL(c);
+      await loadOSM({ lng: ll[0], lat: ll[1] });
+      if (!project.osm) $('ag-status').textContent = 'Map data could not be loaded, so only your own obstacles are used.';
+    }
+    $('ag-status').textContent = 'Searching…';
+    await new Promise((r) => setTimeout(r, 30));
+    const t0 = performance.now();
+    const res = generateVectors({
+      lops: project.lops, assets: project.assets,
+      obstacles: [...osmBuildings().map((b) => b.points), ...project.obstacles.map((o) => o.points)],
+      roads: (project.osm?.roads || []).map((r) => r.points),
+      radius, maxResults: keep,
+    });
+    pushHistory();
+    project.vectors = project.vectors.filter((v) => v.status !== 'suggested');
+    let n = 0;
+    for (const c of res.candidates) {
+      n++;
+      project.vectors.push(newVector({ name: `G${project.vectorCounter++}`, source: 'generated', status: 'suggested', start: c.start, points: c.points, vertexOptions: c.vertexOptions, note: c.note, kind: c.kind }));
+    }
+    const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    $('ag-status').textContent = `${n} suggestions from ${res.stats.samples.toLocaleString()} candidate routes (${secs} s). They are dashed on the map: open each to accept or reject it.`;
+    selected = null; save(); renderAll();
+  } catch (e) {
+    $('ag-status').textContent = `The search failed: ${e.message}`;
+  } finally { btn.disabled = false; }
+});

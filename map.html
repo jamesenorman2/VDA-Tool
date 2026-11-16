@@ -68,27 +68,56 @@
     </details>
 
     <details id="sec-draw" open>
-      <summary>Draw</summary>
+      <summary>Site</summary>
       <div class="body">
+        <h4>Asset</h4>
         <div class="btnrow">
-          <button data-draw="asset">Asset</button>
-          <button data-draw="lop">Line of protection</button>
-          <button data-draw="vector" class="primary">New vector</button>
+          <button data-tool="asset-tap" class="primary">Tap a building</button>
+          <button data-tool="asset-draw">Draw outline</button>
+          <button data-tool="asset-rect">Rectangle</button>
         </div>
-        <p class="hint" id="draw-hint">Click to add points. Enter or double-click to finish, Backspace removes the last point, Esc cancels. Drag a point to move it.</p>
+        <h4>Line of protection</h4>
+        <div class="inline wrap">
+          <label class="inl">Standoff <input id="standoff" type="number" min="0" step="any" value="10" aria-label="Standoff from the asset in metres"> m</label>
+          <button id="lop-auto">Create around the asset</button>
+        </div>
+        <div class="btnrow">
+          <button data-tool="lop-draw">Draw line</button>
+          <button data-tool="lop-loop">Draw closed loop</button>
+        </div>
+        <h4>Obstacles <span class="pill" id="obs-count"></span></h4>
+        <div class="btnrow">
+          <button id="osm-load">Load buildings and roads</button>
+          <button data-tool="obstacle-draw">Draw obstacle</button>
+        </div>
+        <p class="hint" id="osm-status">Buildings stop vehicles; everything else counts as drivable. Building and road data comes from OpenStreetMap.</p>
+        <div class="btnrow">
+          <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+          <label class="chk"><input type="checkbox" id="snap" checked> Snap to points and edges</label>
+        </div>
       </div>
     </details>
 
     <details id="sec-vectors" open>
       <summary>Vectors <span id="vec-count" class="pill"></span></summary>
       <div class="body">
+        <div class="autogen">
+          <div class="inline wrap">
+            <label class="inl">Study radius <input id="ag-radius" type="number" min="50" max="1000" step="10" value="440" aria-label="Study radius in metres"> m</label>
+            <label class="inl">Keep <input id="ag-max" type="number" min="1" max="50" value="10" aria-label="Number of suggestions"></label>
+          </div>
+          <button id="ag-run" class="primary">Find attack vectors</button>
+          <p class="hint" id="ag-status">Searches open ground, round building corners and along roads for the fastest approaches to each line of protection. Results are suggestions: accept or reject each one.</p>
+        </div>
+        <button data-tool="vector-draw">Draw a vector yourself</button>
         <label>Speeds in
           <select id="unit"><option value="KPH">km/h</option><option value="MPH">mph</option></select></label>
         <ol id="vec-list"></ol>
-        <button id="copy-all" type="button">Copy all vectors for report</button>
-        <div id="vec-detail"></div>
+        <button id="copy-all" type="button">Copy accepted and drawn vectors for report</button>
       </div>
     </details>
+
+    <section id="detail-box" aria-live="polite"><div id="vec-detail"></div></section>
 
     <details id="sec-project">
       <summary>Project</summary>
@@ -110,8 +139,31 @@
         <p class="hint" id="proj-status"></p>
       </div>
     </details>
+    <details id="sec-notes">
+      <summary>Assumptions and limitations</summary>
+      <div class="body notes">
+        <ul>
+          <li>Speeds come from the same engine as the route calculator: fitted acceleration curves per vehicle class (top speed reached after 440 m), cornering at v = √(μ·r·g) capped at each class's slip speed, on a flat, level, dry surface with a perfect driver.</li>
+          <li>Braking into a bend is instant and the bend speed is held throughout; vehicles never exceed their class's top speed.</li>
+          <li>Everything that is not an obstacle counts as drivable at road grip, including grass, verges and kerbs, which overstates speed there.</li>
+          <li>Bends use the largest radius that fits and keeps clear of obstacles (a driver cutting corners). Found vectors keep 1 m clear of obstacles; drawn vectors are taken as drawn.</li>
+          <li>Found vectors: straight runs, runs round building corners and routes along the road network up to the study radius. A run that starts at an obstacle starts from rest. They are suggestions and need checking: missing or extra buildings in OpenStreetMap change the results.</li>
+          <li>Impact energy uses nominal class masses (1.5, 2.5, 3.5, 7.5, 18 and 30 t).</li>
+          <li>Results support, but do not replace, a competent specialist assessment.</li>
+        </ul>
+      </div>
+    </details>
   </aside>
   <div id="map" aria-label="Map"></div>
+  <div id="drawbar" hidden>
+    <div class="db-top"><b id="db-title"></b><span id="db-measure"></span></div>
+    <p id="db-hint"></p>
+    <div class="btnrow">
+      <button id="db-undo" type="button">Undo point</button>
+      <button id="db-finish" type="button" class="primary">Finish</button>
+      <button id="db-cancel" type="button">Cancel</button>
+    </div>
+  </div>
   <div id="legend" aria-label="Impact speed colours"></div>
 </div>
 <script src="config.js"></script>
