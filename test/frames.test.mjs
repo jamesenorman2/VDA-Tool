@@ -70,3 +70,14 @@ test('deploy config: MapTiler key from the environment, empty when unset', async
   assert.match(configSource({ MAPTILER_KEY: ' abc123 ' }), /window\.VDA_CONFIG = \{"maptilerKey":"abc123"\};/);
   assert.match(configSource({}), /"maptilerKey":""/);
 });
+
+test('NPSA comparison: our own figures compare as matching; a 3 km/h error is flagged', async () => {
+  const { CASES, expected } = await import('../scripts/npsa-cases.mjs');
+  const { parseCsv, compare } = await import('../scripts/compare-npsa.mjs');
+  const { VEHICLES } = await import('../src/maths.js');
+  const line = (id, st, bump = 0) => [id, st, ...VEHICLES.map((v, i) => Math.round(expected(CASES.find((c) => c.id === id), st.toUpperCase())[v.id]) + (i === 0 ? bump : 0))].join(',');
+  const csv = `case,start,${VEHICLES.map((v) => `"${v.name}"`).join(',')}\n${line('C07', 'Standing')}\n${line('C12', 'Rolling', 3)}`;
+  const res = compare(parseCsv(csv));
+  assert.equal(res.length, 12);
+  assert.deepEqual(res.filter((r) => !r.ok).map((r) => [r.case, r.vehicle]), [['C12', VEHICLES[0].name]]);
+});

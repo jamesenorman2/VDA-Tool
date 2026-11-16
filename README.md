@@ -30,3 +30,5 @@ npm test       # unit tests for the maths and sketch geometry
 Sections are stored nearest-asset first and always shown and entered from the start of the route to the asset. State is kept in `localStorage`. Dark mode is on by default (toggle in the header); every results table, chart and sketch has a copy-for-report button. Standing rules for changes are in `CLAUDE.md`.
 
 Planned map-based workflow: see `docs/spec-map-attack-vectors.md` and `docs/plan-p0-p1.md`.
+
+Checking against the NPSA VDA tool: see `docs/verification/npsa-check.md` (`npm run verify:cases` regenerates it, `npm run verify:compare` compares results).
