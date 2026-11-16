@@ -1,10 +1,12 @@
 {
   "name": "vda-tool",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "start": "python3 -m http.server 8080"
+    "start": "python3 -m http.server 8080",
+    "verify:cases": "node scripts/npsa-cases.mjs",
+    "verify:compare": "node scripts/compare-npsa.mjs"
   }
 }
