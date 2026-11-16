@@ -9,4 +9,5 @@ These come from the project owner and apply to every change.
 - **Dark mode is an option and on by default.** Every page sets `data-theme` from `localStorage['vda-theme']` (default `dark`) in an inline head script and has a toggle. Colours come from CSS tokens; print is always light.
 - **Entry order is always start of route → asset.** There is no setting for it.
 - **Start conditions:** standing (from rest), entry speed (km/h, capped at top speed) or rolling (already at top speed). Explain them in the UI; the calculator shows all three side by side.
+- **Report.** `src/report.js` builds the report once as a list of blocks and renders it to HTML (printed to PDF) and Word; add content as blocks so both stay identical. Barrier designations stay marked as drafts until the owner confirms the vehicle-class mapping per standard. The Word file uses a default layout until the owner's house template is supplied.
 - Run `npm test` before every commit. Do not put model identifiers in commits or code.

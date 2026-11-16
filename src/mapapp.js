@@ -12,6 +12,7 @@ import { putBlob, getBlob, deleteBlob, loadJSON, saveJSON, blobToDataURL, dataUR
 import { area, perimeter, polylineLength, dist, centroid, pointInPolygon, nearestOnPolyline, offsetPolygon, simplify, rectangleFrom, minDistance, bufferLine } from './geometry/polygon.js';
 import { fetchOSM } from './osm.js';
 import { generateVectors } from './autogen.js';
+import { requiredProtection } from './summary.js';
 
 const KEY_PROJECT = 'vda-map-project-v1', KEY_MAPTILER = 'vda-maptiler-key', KEY_CALC = 'vda-tool-state-v1';
 const $ = (id) => document.getElementById(id);
@@ -38,9 +39,10 @@ let mtKey = ownKey || SITE_KEY;
 let results = new Map(); // vector id -> computed result
 
 function blankProject() {
-  return newProject({ anchor: null, plan: null, view: { center: [-1.5, 53.0], zoom: 5 }, vectorCounter: 1, obstacles: [], osm: null, osmExcluded: [] });
+  return newProject({ anchor: null, plan: null, view: { center: [-1.5, 53.0], zoom: 5 }, vectorCounter: 1, obstacles: [], osm: null, osmExcluded: [], details: { date: new Date().toISOString().slice(0, 10) }, issues: [], locked: false });
 }
 project.obstacles = project.obstacles || []; project.osmExcluded = project.osmExcluded || [];
+project.details = project.details || {}; project.issues = project.issues || [];
 let saveTimer;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveJSON(KEY_PROJECT, project), 250); }
 const isEmpty = () => !project.plan && !project.osm && !project.assets.length && !project.lops.length && !project.vectors.length && !project.obstacles?.length;
@@ -85,7 +87,7 @@ function setBasemap(kind) {
 const EMPTY = { type: 'FeatureCollection', features: [] };
 map.on('load', () => {
   map.addLayer({ id: 'plan-anchor', type: 'background', paint: { 'background-opacity': 0 } }); // keeps plan above basemap
-  for (const id of ['osm', 'obstacle', 'asset', 'lop', 'raw', 'path', 'handles', 'mids', 'temp', 'picks', 'snap']) map.addSource(id, { type: 'geojson', data: EMPTY });
+  for (const id of ['osm', 'obstacle', 'asset', 'lop', 'req', 'raw', 'path', 'handles', 'mids', 'temp', 'picks', 'snap']) map.addSource(id, { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'osm-fill', type: 'fill', source: 'osm', paint: { 'fill-color': ['case', ['get', 'excluded'], '#2a9d8f', '#6b7280'], 'fill-opacity': ['case', ['get', 'sel'], 0.55, ['get', 'excluded'], 0.15, 0.3] } });
   map.addLayer({ id: 'osm-line', type: 'line', source: 'osm', paint: { 'line-color': ['case', ['get', 'excluded'], '#2a9d8f', '#4b5563'], 'line-width': ['case', ['get', 'sel'], 2.5, 0.8], 'line-dasharray': [1, 0] } });
   map.addLayer({ id: 'obstacle-fill', type: 'fill', source: 'obstacle', paint: { 'fill-color': '#7c3aed', 'fill-opacity': ['case', ['get', 'sel'], 0.5, 0.3] } });
@@ -105,6 +107,7 @@ map.on('load', () => {
   map.addLayer({ id: 'path-sugg', type: 'line', source: 'path', filter: ['==', ['get', 'status'], 'suggested'], layout: { 'line-join': 'round' }, paint: { 'line-color': ['get', 'colour'], 'line-width': ['case', ['get', 'sel'], 6, 3.5], 'line-dasharray': [1.5, 1] } });
   map.addLayer({ id: 'path-rej', type: 'line', source: 'path', filter: ['==', ['get', 'status'], 'rejected'], paint: { 'line-color': '#888', 'line-width': 2, 'line-opacity': 0.5, 'line-dasharray': [1, 2] } });
   map.addLayer({ id: 'lop-line', type: 'line', source: 'lop', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#e63946', 'line-width': ['case', ['get', 'sel'], 7, 5] } });
+  map.addLayer({ id: 'lop-req', type: 'line', source: 'req', paint: { 'line-color': ['get', 'colour'], 'line-width': 7 } });
   map.addLayer({ id: 'lop-dash', type: 'line', source: 'lop', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#fff', 'line-width': 2, 'line-dasharray': [1, 1.5] } });
   map.addLayer({ id: 'temp-line', type: 'line', source: 'temp', filter: ['==', '$type', 'LineString'], paint: { 'line-color': '#e0a100', 'line-width': 2.5, 'line-dasharray': [2, 1] } });
   map.addLayer({ id: 'temp-pts', type: 'circle', source: 'temp', filter: ['==', '$type', 'Point'], paint: { 'circle-radius': 4, 'circle-color': '#e0a100', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
@@ -151,26 +154,75 @@ async function restorePlan() {
 $('plan-file').addEventListener('change', async (e) => {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
-  const url = URL.createObjectURL(file);
+  if (guard()) return;
+  if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) { await openPdf(file); return; }
+  usePlanImage(file, file.name);
+});
+function usePlanImage(blob, name, source = null) {
+  const url = URL.createObjectURL(blob);
   const img = new Image();
   img.onload = async () => {
     ensureFrame(map.getCenter());
     const c = toLocal(map.getCenter());
     const b = map.getBounds();
     const viewW = Math.abs(toLocal(b.getNorthEast()).x - toLocal(b.getSouthWest()).x);
-    const s = (viewW * 0.6) / img.naturalWidth; // first guess only; the plan is "not scaled" until set
-    const T = { s, theta: 0, tx: 0, ty: 0 };
+    const s0 = (viewW * 0.6) / img.naturalWidth; // first guess only; the plan is "not scaled" until set
+    const T = { s: s0, theta: 0, tx: 0, ty: 0 };
     const mid = planToLocal(T, { u: img.naturalWidth / 2, v: img.naturalHeight / 2 });
     T.tx = c.x - mid.x; T.ty = c.y - mid.y;
     if (planURL) URL.revokeObjectURL(planURL);
     planURL = url;
-    project.plan = { name: file.name, w: img.naturalWidth, h: img.naturalHeight, placement: T, opacity: 0.7, scale: null, check: null, align: null };
-    await putBlob(`plan:${project.id}`, file);
+    project.plan = { name, source, w: img.naturalWidth, h: img.naturalHeight, placement: T, opacity: 0.7, scale: null, check: null, align: null };
+    await putBlob(`plan:${project.id}`, blob);
+    $('plan-status').textContent = 'Plan placed in the middle of the map. Next: set its scale, then align it to the map.';
     save(); showPlan(); renderAll();
   };
-  img.onerror = () => { $('proj-status').textContent = 'That file could not be read as an image.'; };
+  img.onerror = () => { $('plan-status').textContent = 'That file could not be read as an image.'; };
   img.src = url;
-});
+}
+
+// PDF plans: rendered page by page with PDF.js (loaded only when needed).
+let pdfDoc = null, pdfName = '';
+async function loadPdfJs() {
+  if (window.pdfjsLib) return window.pdfjsLib;
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'vendor/pdfjs-3.11.174/pdf.min.js'; s.onload = resolve; s.onerror = () => reject(new Error('Could not load the PDF reader'));
+    document.head.appendChild(s);
+  });
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'vendor/pdfjs-3.11.174/pdf.worker.min.js';
+  return window.pdfjsLib;
+}
+async function openPdf(file) {
+  $('plan-status').textContent = 'Reading the PDF…';
+  try {
+    const lib = await loadPdfJs();
+    pdfDoc = await lib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    pdfName = file.name;
+    if (pdfDoc.numPages === 1) { await usePdfPage(1); return; }
+    $('pdf-page').innerHTML = Array.from({ length: pdfDoc.numPages }, (_, i) => `<option value="${i + 1}">${i + 1} of ${pdfDoc.numPages}</option>`).join('');
+    $('pdf-pick').hidden = false;
+    $('plan-status').textContent = `The PDF has ${pdfDoc.numPages} pages. Choose the site plan page.`;
+  } catch (err) { $('plan-status').textContent = `Could not read that PDF: ${err.message}`; }
+}
+$('pdf-use').addEventListener('click', () => usePdfPage(+$('pdf-page').value));
+async function usePdfPage(n) {
+  $('plan-status').textContent = `Rendering page ${n}…`;
+  try {
+    const page = await pdfDoc.getPage(n);
+    const base = page.getViewport({ scale: 1 });
+    // Sharp enough to read drawing detail, within what phones can hold in a canvas.
+    const scale = Math.min(4, 4096 / Math.max(base.width, base.height));
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.floor(vp.width); canvas.height = Math.floor(vp.height);
+    const ctx = canvas.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    const blob = await new Promise((r) => canvas.toBlob(r, 'image/png'));
+    $('pdf-pick').hidden = true;
+    usePlanImage(blob, `${pdfName}, page ${n}`, { pdf: pdfName, page: n, pointsWide: base.width, pointsHigh: base.height });
+  } catch (err) { $('plan-status').textContent = `Could not render that page: ${err.message}`; }
+}
 $('plan-opacity').addEventListener('input', (e) => {
   project.plan.opacity = +e.target.value; save();
   if (map.getLayer('plan')) map.setPaintProperty('plan', 'raster-opacity', project.plan.opacity);
@@ -272,6 +324,7 @@ function pushHistory() {
 }
 function undo() {
   if (mode?.points?.length) { mode.points.pop(); renderTemp(); return; }
+  if (guard()) return;
   const snap = history.pop();
   if (!snap) { $('osm-status').textContent = 'Nothing to undo.'; return; }
   Object.assign(project, JSON.parse(snap));
@@ -292,6 +345,7 @@ const TOOLS = {
 };
 document.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => startTool(b.dataset.tool, b)));
 function startTool(name, button) {
+  if (guard()) return;
   cancelMode();
   const t = TOOLS[name];
   mode = { ...t, tool: name, points: [] };
@@ -448,6 +502,7 @@ $('osm-load').addEventListener('click', () => {
 
 // ---------- line of protection around the asset ----------
 $('lop-auto').addEventListener('click', () => {
+  if (guard()) return;
   const a = findItem(selected?.kind === 'asset' ? selected : null) || project.assets[project.assets.length - 1];
   if (!a) { $('osm-status').textContent = 'Add an asset first: tap a building or draw one.'; return; }
   const d = parseFloat($('standoff').value);
@@ -466,6 +521,7 @@ map.on('click', (e) => {
   if (drag?.moved) return;
   if (mode?.kind === 'draw') return drawClick(e);
   if (mode?.kind === 'tap') return tapBuilding(e.lngLat);
+  if (mode?.kind === 'cap') return placeCap(e);
   if (mode?.kind === 'pick') return pickClick(e.lngLat);
   const box = [[e.point.x - 5, e.point.y - 5], [e.point.x + 5, e.point.y + 5]];
   const h = map.queryRenderedFeatures(box, { layers: ['handles'] })[0];
@@ -501,7 +557,7 @@ for (const layer of ['handles', 'mids']) {
   map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = ''; });
 }
 function beginDrag(e, layer) {
-  if (mode || drag) return;
+  if (mode || drag || project.locked) return;
   // A real point always wins over an "add point" dot drawn underneath or beside it.
   if (layer === 'mids' && map.queryRenderedFeatures(e.point, { layers: ['handles'] }).length) return;
   e.preventDefault();
@@ -545,7 +601,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); finishDraw(); }
     if (e.key === 'Escape') cancelMode();
     if (e.key === 'Backspace') { e.preventDefault(); mode.points.pop(); renderTemp(); }
-  } else if ((mode?.kind === 'pick' || mode?.kind === 'tap') && e.key === 'Escape') cancelMode();
+  } else if ((mode?.kind === 'pick' || mode?.kind === 'tap' || mode?.kind === 'cap') && e.key === 'Escape') cancelMode();
   else if (!mode && !typing && selected && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); if (selectedVertex != null) deleteVertex(); else deleteSelected(); }
 });
 
@@ -553,6 +609,7 @@ const MIN_POINTS = { asset: 3, obstacle: 3, lop: 2, vector: 2 };
 const listOf = (kind) => (kind === 'vector' ? project.vectors : kind === 'lop' ? project.lops : kind === 'obstacle' ? (project.obstacles = project.obstacles || []) : kind === 'osm' ? osmBuildings(true) : project.assets);
 const findItem = (ref) => ref && listOf(ref.kind).find((x) => String(x.id) === String(ref.id));
 function deleteVertex() {
+  if (guard()) return;
   const item = findItem(selected);
   if (!item || selectedVertex == null || selected.kind === 'osm') return;
   const min = (selected.kind === 'lop' && item.closed) ? 3 : MIN_POINTS[selected.kind];
@@ -562,7 +619,7 @@ function deleteVertex() {
   selectedVertex = null; save(); renderAll();
 }
 function deleteSelected() {
-  if (!selected || selected.kind === 'osm') return;
+  if (!selected || selected.kind === 'osm' || guard()) return;
   pushHistory();
   const list = listOf(selected.kind);
   const i = list.findIndex((x) => x.id === selected.id);
@@ -599,7 +656,8 @@ function pathCoords(pieces) {
   return out;
 }
 
-let tags = [], segTags = [], assetTags = [];
+let tags = [], segTags = [], assetTags = [], secTags = [], capTags = [];
+let sections = [];
 // A point well inside the polygon for its label: the point furthest from every edge (searched on
 // a coarse grid, then refined), so L- and U-shaped buildings get a label in their widest part.
 function labelPoint(poly) {
@@ -621,6 +679,7 @@ function labelPoint(poly) {
 function renderAll(fast) {
   if (!map.getSource('path')) return;
   results = new Map(project.vectors.map((v) => [v.id, compute(v)]));
+  sections = requiredProtection(project.lops, project.vectors.map((v) => ({ vector: v, result: results.get(v.id) })));
   const sel = (kind, id) => !!selected && selected.kind === kind && selected.id === id;
   const line = (coords, props) => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } });
   setData('asset', { type: 'FeatureCollection', features: frame ? project.assets.map((a) => ({ type: 'Feature', properties: { kind: 'asset', id: a.id, sel: sel('asset', a.id) }, geometry: { type: 'Polygon', coordinates: [[...a.points.map(toLL), toLL(a.points[0])]] } })) : [] });
@@ -681,6 +740,27 @@ function renderAll(fast) {
     el.addEventListener('click', (ev) => { ev.stopPropagation(); selected = { kind: 'vector', id: v.id }; renderAll(); });
     tags.push(new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, -6] }).setLngLat(toLL(r.crossing.point)).addTo(map));
   }
+  // Required protection: each LoP section coloured by the impact speed it must resist.
+  setData('req', { type: 'FeatureCollection', features: frame ? sections.filter((x) => x.worst != null).map((x) => line(x.points.map(toLL), { colour: bandColour(x.worst) })) : [] });
+  secTags.forEach((t) => t.remove()); secTags = [];
+  if (frame) for (const x of sections) {
+    const el = document.createElement('div');
+    el.className = 'sec-tag'; el.style.setProperty('--c', x.worst != null ? bandColour(x.worst) : '#888');
+    el.textContent = x.worst != null ? `${x.label} · ${Math.round(conv(x.worst))}` : x.label;
+    el.title = x.worst != null ? `Section ${x.label}: up to ${Math.round(conv(x.worst))} ${unitName()} (${x.governing.name})` : `Section ${x.label}: no accepted vector yet`;
+    el.addEventListener('click', (ev) => { ev.stopPropagation(); if (mode) return; selected = { kind: 'lop', id: x.lopId }; selectedVertex = null; renderAll(); $('sec-req').open = true; $('sec-req').scrollIntoView({ block: 'nearest' }); });
+    secTags.push(new maplibregl.Marker({ element: el, offset: [0, 0] }).setLngLat(toLL(midpointOf(x.points))).addTo(map));
+  }
+  // Speed-limiting features on vectors.
+  capTags.forEach((t) => t.remove()); capTags = [];
+  if (frame) for (const v of project.vectors) {
+    if (v.status === 'rejected') continue;
+    for (const c of v.caps || []) {
+      const el = document.createElement('div'); el.className = 'cap-tag';
+      el.textContent = c.kph > 0 ? `${CAP_TYPES[c.type] || 'Limit'} ≤${Math.round(conv(c.kph))}` : 'STOP';
+      capTags.push(new maplibregl.Marker({ element: el }).setLngLat(toLL(c.point)).addTo(map));
+    }
+  }
   // Asset name labels.
   assetTags.forEach((t) => t.remove()); assetTags = [];
   if (frame) for (const a of project.assets) {
@@ -692,7 +772,7 @@ function renderAll(fast) {
     assetTags.push(new maplibregl.Marker({ element: el }).setLngLat(toLL(labelPoint(a.points))).addTo(map));
   }
   if (fast) { renderDetail(); return; }
-  renderPlanFacts(); renderList(); renderDetail(); renderProject();
+  renderPlanFacts(); renderList(); renderDetail(); renderProject(); renderReq(); renderChecklist(); renderLock();
 }
 function setData(id, data) { const s = map.getSource(id); if (s) s.setData(data); }
 
@@ -722,7 +802,7 @@ function renderDetail() {
   const box = $('vec-detail');
   const item = findItem(selected);
   if (!item) { box.innerHTML = ''; return; }
-  if (selected.kind !== 'vector') { renderShapeDetail(box, item); return; }
+  if (selected.kind !== 'vector') { renderShapeDetail(box, item); lockDetail(box); return; }
   const v = item, r = results.get(v.id);
   let html = `<h3>${esc(v.name)}</h3>
     <label>Name <input id="d-name" value="${esc(v.name)}" maxlength="40"></label>
@@ -755,6 +835,10 @@ function renderDetail() {
       return `<div class="bend"><span>Point ${b.point + 1}: ${info}</span><input type="number" min="0" step="any" data-bend="${b.point}" placeholder="Largest fit" aria-label="Fixed radius at point ${b.point + 1} in metres" value="${opt?.mode === 'fixed' ? opt.radius : ''}"></div>`;
     }).join('') + '<p class="hint">Leave a radius blank for the largest that fits (worst case). Type a radius to fix it.</p>';
   }
+  const capsHtml = (v.caps || []).map((c, i) => `<div class="cap-row"><select data-cap-type="${i}" aria-label="Feature type">${Object.entries(CAP_TYPES).map(([k, t]) => `<option value="${k}"${c.type === k ? ' selected' : ''}>${t}</option>`).join('')}</select><input type="number" min="0" step="any" data-cap-kph="${i}" value="${+conv(c.kph).toFixed(1)}" aria-label="Speed limit at this point" ${c.type === 'stop' ? 'disabled' : ''}><button data-cap-del="${i}" title="Remove" aria-label="Remove">✕</button></div>`).join('');
+  html += `<h3>Speed-limiting features</h3><div class="caps">${capsHtml || '<p class="hint">None. Add gates, chicanes, speed tables or forced stops on this route to see their effect.</p>'}</div>
+    ${v.caps?.length ? `<p class="hint">Speeds in ${unitName()}. A forced stop restarts vehicles from rest; a limit caps the speed at that point and vehicles accelerate again after it.</p>` : ''}
+    <button id="d-addcap">Add a gate, chicane or stop…</button>`;
   html += `<div class="btnrow"><button id="d-copy">Copy results for report</button><button id="d-hovva" title="Copies this vector's sections starting at the asset, the order NPSA HOVVA uses">Copy for HOVVA</button><button id="d-calc">Open in route calculator</button><button id="d-del" class="quiet">Delete vector</button></div><p class="hint" id="d-calc-msg"></p>`;
   const focusId = document.activeElement?.id || document.activeElement?.dataset?.bend;
   box.innerHTML = html;
@@ -770,6 +854,10 @@ function renderDetail() {
   };
   $('d-start').onchange = (e) => { v.start = e.target.value; save(); renderAll(); };
   if ($('d-entry')) $('d-entry').onchange = (e) => { const x = parseFloat(e.target.value); v.entryKph = x > 0 ? (project.settings.unit === 'MPH' ? x * KPH_PER_MPH : x) : 0; save(); renderAll(); };
+  $('d-addcap').onclick = () => startCapMode(v);
+  box.querySelectorAll('[data-cap-type]').forEach((el) => { el.onchange = () => { if (guard()) return; pushHistory(); const c = v.caps[+el.dataset.capType]; c.type = el.value; if (c.type === 'stop') c.kph = 0; else if (!c.kph) c.kph = CAP_DEFAULT[c.type] || 20; save(); renderAll(); }; });
+  box.querySelectorAll('[data-cap-kph]').forEach((el) => { el.onchange = () => { if (guard()) return; pushHistory(); const x = parseFloat(el.value); v.caps[+el.dataset.capKph].kph = x > 0 ? (project.settings.unit === 'MPH' ? x * KPH_PER_MPH : x) : 0; save(); renderAll(); }; });
+  box.querySelectorAll('[data-cap-del]').forEach((el) => { el.onclick = () => { if (guard()) return; pushHistory(); v.caps.splice(+el.dataset.capDel, 1); save(); renderAll(); }; });
   $('d-hovva').onclick = async (e) => {
     if (!r.sections?.length || r.errors.length) { flash(e.target, false, '', 'Fix the problems above first'); return; }
     flash(e.target, await copyRich(hovvaTable(r.sections, `${project.title ? project.title + ' – ' : ''}${v.name}`)));
@@ -785,6 +873,7 @@ function renderDetail() {
     save(); renderAll();
   }; });
   $('d-del').onclick = deleteSelected;
+  lockDetail(box);
   let armed = false;
   $('d-calc').onclick = () => {
     if (!r.speeds) { $('d-calc-msg').textContent = 'Fix the problems above first.'; return; }
@@ -838,14 +927,15 @@ function renderProject() {
   $('marking-custom').hidden = !custom && $('marking').value !== 'CUSTOM';
   if (custom) $('marking-custom').value = project.marking;
   $('egress-warn').hidden = !project.marking || project.marking === 'OFFICIAL';
+  renderDetailsForm();
 }
-$('title').addEventListener('change', (e) => { project.title = e.target.value; save(); });
+$('title').addEventListener('change', (e) => { if (guard()) return; project.title = e.target.value; save(); renderChecklist(); });
 $('marking').addEventListener('change', (e) => {
   if (e.target.value === 'CUSTOM') { $('marking-custom').hidden = false; $('marking-custom').focus(); project.marking = $('marking-custom').value.trim() || null; }
   else project.marking = e.target.value || null;
-  save(); renderProject();
+  save(); renderProject(); renderChecklist();
 });
-$('marking-custom').addEventListener('change', (e) => { project.marking = e.target.value.trim() || null; save(); renderProject(); });
+$('marking-custom').addEventListener('change', (e) => { project.marking = e.target.value.trim() || null; save(); renderProject(); renderChecklist(); });
 $('proj-save').addEventListener('click', async () => {
   const out = { ...project, planImage: null };
   if (project.plan) { const b = await getBlob(`plan:${project.id}`); if (b) out.planImage = await blobToDataURL(b); }
@@ -884,7 +974,6 @@ $('proj-clear').addEventListener('click', async () => {
 
 // ---------- legend ----------
 $('legend').innerHTML = `<div class="key"><span><i class="k-asset"></i>Asset</span><span><i class="k-lop"></i>Line of protection</span><span><i class="k-obs"></i>Obstacle</span></div>` + '<b>Worst-case impact speed <em class="short">(km/h)</em></b>' + TEST_SPEEDS_KPH.map((t, i) => `<span><i style="background:${BAND_COLOURS[i]}"></i><em class="full">≤ ${t} km/h</em><em class="short">${t}</em></span>`).join('') + `<span><i style="background:${BAND_COLOURS[7]}"></i><em class="full">&gt; 112 km/h</em><em class="short">&gt;112</em></span>`;
-renderKey(); renderProject();
 
 // ---------- copy for report ----------
 const startText = (v) => (v.start === 'STANDING' ? 'standing start (from rest)' : v.start === 'ENTRY' ? (v.entryKph > 0 ? `entry speed ${Math.round(conv(v.entryKph))} ${unitName()}` : 'entry speed not set, so treated as a standing start') : 'rolling start (already at top speed)');
@@ -902,8 +991,8 @@ $('copy-all').addEventListener('click', async (e) => {
   if (!ok.length) { flash(e.target, false, '', 'No vectors with results yet'); return; }
   const t = reportTable({
     title: titled('Impact speeds at the line of protection'), numericFrom: 1,
-    headers: ['Vector', 'Run-up (m)', 'Angle (°)', 'Start', ...VEHICLES.map((c) => `${c.name} (${unitName()})`)],
-    rows: ok.map(([v, r]) => [v.name, r.runUp.toFixed(0), r.crossing.angle.toFixed(0), v.start === 'ENTRY' ? `Entry ${Math.round(conv(v.entryKph || 0))}` : v.start === 'STANDING' ? 'Standing' : 'Rolling', ...VEHICLES.map((c) => Math.round(conv(r.speeds[c.id])))]),
+    headers: ['Vector', 'Run-up (m)', 'Angle (°)', 'Start', 'Speed-limiting features', ...VEHICLES.map((c) => `${c.name} (${unitName()})`)],
+    rows: ok.map(([v, r]) => [v.name, r.runUp.toFixed(0), r.crossing.angle.toFixed(0), v.start === 'ENTRY' ? `Entry ${Math.round(conv(v.entryKph || 0))}` : v.start === 'STANDING' ? 'Standing' : 'Rolling', capsText(v), ...VEHICLES.map((c) => Math.round(conv(r.speeds[c.id])))]),
     notes: ['Maximum achievable speeds on a flat, level, dry surface; worst-case bend radii unless fixed by the assessor.', ...(project.marking ? [project.marking] : [])],
   });
   flash(e.target, await copyRich(t));
@@ -963,6 +1052,7 @@ function renderShapeDetail(box, item) {
 
 // ---------- find attack vectors ----------
 $('ag-run').addEventListener('click', async () => {
+  if (guard()) return;
   if (!project.lops.length) { $('ag-status').textContent = 'Add a line of protection first (Site → Line of protection).'; return; }
   const radius = Math.min(1000, Math.max(50, +$('ag-radius').value || 440));
   const keep = Math.min(50, Math.max(1, +$('ag-max').value || 10));
@@ -1017,3 +1107,213 @@ function runSearch(params) {
 
 // Test hook: only with ?debug in the address, so automated checks can find points on screen.
 if (new URLSearchParams(location.search).has('debug')) window.__vda = { map, project: () => project, toLL };
+
+// ---------- speed-limiting features ----------
+const CAP_TYPES = { stop: 'Forced stop', gate: 'Gate or barrier arm', chicane: 'Chicane', hump: 'Speed table or hump', other: 'Other limit' };
+const CAP_DEFAULT = { gate: 5, chicane: 20, hump: 25, other: 20 };
+function startCapMode(v) {
+  if (guard()) return;
+  cancelMode();
+  mode = { kind: 'cap', vectorId: v.id };
+  document.body.classList.add('drawing');
+  $('drawbar').hidden = false;
+  $('db-title').textContent = 'Tap the route where vehicles are slowed or stopped';
+  $('db-hint').textContent = 'For example a gate, a chicane, a speed table or a point where vehicles must stop.';
+  $('db-measure').textContent = '';
+  $('db-undo').hidden = $('db-finish').hidden = true;
+}
+function placeCap(e) {
+  const v = project.vectors.find((x) => x.id === mode.vectorId), r = results.get(v?.id);
+  if (!v || !r?.pieces) { cancelMode(); return; }
+  // Snap the tap onto the route itself.
+  const tap = toLocal(e.lngLat);
+  const pts = r.pieces.flatMap((q) => (q.kind === 'line' ? [q.from, q.to] : sampleArc(q)));
+  let best = null;
+  for (let i = 0; i < pts.length - 1; i++) { const q = nearestOnPolyline(tap, [pts[i], pts[i + 1]]); if (!best || q.d < best.d) best = q; }
+  if (!best || best.d / metresPerPixel() > 30) { $('db-hint').textContent = 'Tap on the route line itself.'; return; }
+  pushHistory();
+  v.caps = v.caps || [];
+  v.caps.push({ id: uid('cap'), point: best.point, kph: 0, type: 'stop' });
+  cancelMode(); save(); renderAll();
+}
+
+// ---------- locking (issued versions) ----------
+function guard() {
+  if (!project.locked) return false;
+  const b = $('lock-banner'); b.hidden = false; b.classList.remove('pulse'); void b.offsetWidth; b.classList.add('pulse');
+  return true;
+}
+function lockDetail(box) {
+  if (!project.locked) return;
+  box.querySelectorAll('input, select, textarea, button').forEach((el) => { if (!/^(d-copy|d-hovva|d-calc)$/.test(el.id)) el.disabled = true; });
+}
+function renderLock() {
+  document.body.classList.toggle('locked', !!project.locked);
+  const last = project.issues[project.issues.length - 1];
+  $('lock-banner').hidden = !project.locked;
+  if (project.locked && last) $('lock-banner').textContent = `Issued as version ${last.n} on ${last.date}. It is locked; choose "Unlock to revise" under Project and report to make changes.`;
+  $('issue').hidden = !!project.locked; $('unlock').hidden = !project.locked;
+  $('issues').innerHTML = project.issues.length ? project.issues.map((x) => `<div>Version ${x.n} – ${esc(x.date)}${x.by ? ` – ${esc(x.by)}` : ''}${x.reopened ? ' (since revised)' : ''}</div>`).join('') : '<div>Not issued yet. Issuing locks the assessment and records the version on the report.</div>';
+}
+let issueArmed = false;
+$('issue').addEventListener('click', () => {
+  const open = checklistItems().filter((c) => c.state !== 'ok' && c.required);
+  if (open.length && !issueArmed) { issueArmed = true; $('proj-status').textContent = `${open.length} checklist item${open.length === 1 ? ' is' : 's are'} not complete. Click "Issue this version" again to issue anyway.`; return; }
+  issueArmed = false;
+  pushHistory();
+  project.issues.push({ n: project.issues.length + 1, date: new Date().toISOString().slice(0, 10), at: new Date().toISOString(), by: project.details.assessor || '' });
+  project.locked = true;
+  $('proj-status').textContent = `Issued as version ${project.issues.length}.`;
+  save(); renderAll();
+});
+$('unlock').addEventListener('click', () => {
+  project.locked = false;
+  const last = project.issues[project.issues.length - 1]; if (last) last.reopened = true;
+  $('proj-status').textContent = `Unlocked. Changes now form a draft of version ${project.issues.length + 1}.`;
+  save(); renderAll();
+});
+
+// ---------- project details ----------
+const DETAIL_FIELDS = { 'p-site': 'site', 'p-client': 'client', 'p-assessor': 'assessor', 'p-reviewer': 'reviewer', 'p-date': 'date', 'p-handling': 'handling', 'p-notes': 'notes' };
+for (const [id, key] of Object.entries(DETAIL_FIELDS)) {
+  $(id).addEventListener('change', (e) => { if (guard()) { renderDetailsForm(); return; } project.details[key] = e.target.value.trim(); save(); renderChecklist(); });
+}
+function renderDetailsForm() {
+  for (const [id, key] of Object.entries(DETAIL_FIELDS)) if (document.activeElement !== $(id)) $(id).value = project.details[key] || '';
+  for (const id of [...Object.keys(DETAIL_FIELDS), 'title', 'marking', 'marking-custom']) $(id).disabled = !!project.locked;
+}
+
+// ---------- required protection table ----------
+function renderReq() {
+  $('req-count').textContent = sections.length ? `${sections.length} section${sections.length === 1 ? '' : 's'}` : '';
+  if (!sections.length) { $('req-table').innerHTML = '<p class="hint">Add a line of protection to see what each section of it must resist.</p>'; return; }
+  const sel = selected?.kind === 'lop' ? selected.id : null;
+  $('req-table').innerHTML = `<table><thead><tr><th>Section</th><th>Governing vector</th>${VEHICLES.map((v) => `<th title="${esc(v.name)}">${esc(v.name.split(' ')[0])}</th>`).join('')}</tr></thead><tbody>${sections.map((x) => `<tr data-sec="${x.label}" class="${x.lopId === sel ? 'sel' : ''}"><td><b>${x.label}</b> <small>${Math.round(x.length)} m</small></td><td>${x.governing ? `${esc(x.governing.name)} <small>${Math.round(x.governing.angle)}°</small>` : `<small>none yet</small>`}${x.pending ? ` <small class="bad" title="Suggestions crossing this section still need reviewing">${x.pending} to review</small>` : ''}</td>${VEHICLES.map((v) => `<td>${x.speeds[v.id] == null ? '–' : `${Math.round(conv(x.speeds[v.id]))}<br><small>${x.tests[v.id] ? `test ${x.tests[v.id]}` : '&gt;112'}</small>`}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <p class="hint">Impact speeds in ${unitName()}; "test" is the lowest standard impact test speed (km/h) at or above it. Angles are the governing vector's impact angle (90° = head-on).</p>`;
+  $('req-table').querySelectorAll('tr[data-sec]').forEach((tr) => { tr.onclick = () => { const x = sections.find((q) => q.label === tr.dataset.sec); selected = { kind: 'lop', id: x.lopId }; selectedVertex = null; const ll = toLL(midpointOf(x.points)); map.easeTo({ center: ll }); renderAll(); }; });
+}
+$('copy-req').addEventListener('click', async (e) => {
+  if (!sections.length) { flash(e.target, false, '', 'Nothing to copy yet'); return; }
+  flash(e.target, await copyRich(reqTable()));
+});
+function reqTable() {
+  return reportTable({
+    title: `${project.title ? project.title + ' – ' : ''}Required protection by section`, numericFrom: 2,
+    headers: ['Section', 'Line of protection', 'Length (m)', 'Governing vector', 'Impact angle (°)', ...VEHICLES.map((v) => `${v.name}: impact ${unitName()} (test km/h)`)],
+    rows: sections.map((x) => [x.label, x.lopName, Math.round(x.length), x.governing ? x.governing.name : 'none', x.governing ? Math.round(x.governing.angle) : '', ...VEHICLES.map((v) => (x.speeds[v.id] == null ? '' : `${Math.round(conv(x.speeds[v.id]))} (${x.tests[v.id] ?? '>112'})`))]),
+    notes: ['Figures come from the fastest accepted or drawn vector crossing each section. Test speed is the lowest standard impact test speed at or above the impact speed.', ...(project.marking ? [project.marking] : [])],
+  });
+}
+const midpointOf = (pts) => {
+  const total = polylineLength(pts); let run = 0;
+  for (let i = 0; i < pts.length - 1; i++) { const L = dist(pts[i], pts[i + 1]); if (run + L >= total / 2) { const f = (total / 2 - run) / (L || 1); return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * f, y: pts[i].y + (pts[i + 1].y - pts[i].y) * f }; } run += L; }
+  return pts[0];
+};
+
+// ---------- checklist ----------
+function checklistItems() {
+  const firm = project.vectors.filter((v) => v.status !== 'suggested' && v.status !== 'rejected' && results.get(v.id)?.speeds);
+  const pending = project.vectors.filter((v) => v.status === 'suggested').length;
+  const uncovered = sections.filter((x) => !x.governing).map((x) => x.label);
+  const d = project.details, p = project.plan;
+  const items = [
+    { required: true, state: project.assets.length ? 'ok' : 'todo', text: project.assets.length ? `Asset: ${project.assets.map((a) => a.name).join(', ')}` : 'Add the asset (tap its building or draw it)', go: 'sec-draw' },
+    { required: true, state: project.lops.length ? 'ok' : 'todo', text: project.lops.length ? `Line of protection: ${sections.length} section${sections.length === 1 ? '' : 's'}` : 'Add a line of protection', go: 'sec-draw' },
+    { required: false, state: project.osm || project.obstacles.length ? 'ok' : 'todo', text: project.osm ? 'Buildings, walls and roads loaded' : project.obstacles.length ? 'Obstacles drawn' : 'Load buildings and roads, or draw obstacles', go: 'sec-draw' },
+  ];
+  if (p) items.push({ required: true, state: !p.scale ? 'todo' : !p.check ? 'warn' : Math.abs(p.check.errPct) > 2 ? 'warn' : 'ok', text: !p.scale ? 'Set the site plan\'s scale' : !p.check ? 'Check the plan scale with a second measurement' : `Plan scale checked (${p.check.errPct > 0 ? '+' : ''}${p.check.errPct.toFixed(1)} %)`, go: 'sec-plan' });
+  items.push(
+    { required: true, state: firm.length ? 'ok' : 'todo', text: firm.length ? `${firm.length} vector${firm.length === 1 ? '' : 's'} accepted or drawn` : 'Find attack vectors or draw them', go: 'sec-vectors' },
+    { required: true, state: pending ? 'warn' : 'ok', text: pending ? `${pending} suggestion${pending === 1 ? '' : 's'} still to accept or reject` : 'All suggestions reviewed', go: 'sec-vectors' },
+    { required: true, state: !sections.length ? 'todo' : uncovered.length ? 'warn' : 'ok', text: !sections.length ? 'Every section covered by a vector' : uncovered.length ? `No accepted vector crosses section${uncovered.length === 1 ? '' : 's'} ${uncovered.join(', ')}` : 'Every section of the line has a governing vector', go: 'sec-req' },
+    { required: true, state: project.title && d.site && d.client && d.assessor ? 'ok' : 'todo', text: project.title && d.site && d.client && d.assessor ? 'Project details complete' : 'Fill in title, site, client and assessor', go: 'sec-project' },
+    { required: true, state: project.marking ? 'ok' : 'todo', text: project.marking ? `Marking: ${project.marking}` : 'Choose a protective marking', go: 'sec-project' },
+    { required: false, state: d.reviewer ? 'ok' : 'todo', text: d.reviewer ? `Reviewer: ${d.reviewer}` : 'Name a reviewer', go: 'sec-project' },
+    { required: false, state: project.locked ? 'ok' : 'todo', text: project.locked ? `Issued as version ${project.issues.length}` : 'Issue the version when it is final', go: 'sec-project' },
+  );
+  return items;
+}
+function renderChecklist() {
+  const items = checklistItems();
+  const done = items.filter((c) => c.state === 'ok').length;
+  $('ck-score').textContent = `${done} of ${items.length}`;
+  $('check-items').innerHTML = items.map((c, i) => `<li class="${c.state === 'ok' ? 'ok' : c.state === 'warn' ? 'warn2' : 'todo'}"><span aria-hidden="true">${c.state === 'ok' ? '✓' : c.state === 'warn' ? '!' : '○'}</span><button data-go="${c.go}" data-i="${i}">${esc(c.text)}</button></li>`).join('');
+  $('check-items').querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => { const el = $(b.dataset.go); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'start', behavior: 'smooth' }); }; });
+}
+
+const capsText = (v) => (v.caps || []).map((c) => (c.type === 'stop' ? 'forced stop' : `${(CAP_TYPES[c.type] || 'limit').toLowerCase()} ≤${Math.round(conv(c.kph))} ${unitName()}`)).join('; ');
+
+// ---------- report ----------
+// Frames the site, takes a clean snapshot of the map with labels drawn in, stores it, then opens
+// the report page, which builds the report from the saved project.
+$('report').addEventListener('click', async () => {
+  if (!frame || (!project.assets.length && !project.lops.length)) { $('proj-status').textContent = 'Add an asset and a line of protection first.'; return; }
+  const btn = $('report'); btn.disabled = true; $('proj-status').textContent = 'Preparing the map for the report…';
+  try {
+    const blob = await captureMap('all');
+    if (blob) await putBlob(`report-map:${project.id}`, blob); else await deleteBlob(`report-map:${project.id}`);
+    const site = await captureMap('site');
+    if (site) await putBlob(`report-map-site:${project.id}`, site); else await deleteBlob(`report-map-site:${project.id}`);
+    saveJSON(KEY_PROJECT, project);
+    location.href = 'report.html';
+  } catch (e) {
+    $('proj-status').textContent = `Could not prepare the map image (${e.message}). Opening the report without it.`;
+    saveJSON(KEY_PROJECT, project);
+    setTimeout(() => { location.href = 'report.html'; }, 1200);
+  } finally { btn.disabled = false; }
+});
+async function captureMap(focus) {
+  const firm = project.vectors.filter((v) => v.status !== 'suggested' && v.status !== 'rejected');
+  const sitePts = [...project.assets.flatMap((a) => a.points), ...project.lops.flatMap((l) => l.points)];
+  // 'site' is a close-up of the asset and its lines of protection, with a 30 m margin.
+  const pad = focus === 'site' && sitePts.length ? [{ x: Math.min(...sitePts.map((q) => q.x)) - 30, y: Math.min(...sitePts.map((q) => q.y)) - 30 }, { x: Math.max(...sitePts.map((q) => q.x)) + 30, y: Math.max(...sitePts.map((q) => q.y)) + 30 }] : [];
+  const pts = focus === 'site' ? [...sitePts, ...pad] : [...sitePts, ...firm.flatMap((v) => results.get(v.id)?.crossing?.points || v.points)];
+  if (!pts.length) return null;
+  const lls = pts.map(toLL);
+  const bounds = [[Math.min(...lls.map((p) => p[0])), Math.min(...lls.map((p) => p[1]))], [Math.max(...lls.map((p) => p[0])), Math.max(...lls.map((p) => p[1]))]];
+  const prevSel = selected, prevView = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing() };
+  selected = null; selectedVertex = null; renderAll();
+  const hide = ['path-sugg', 'path-rej', 'raw', 'handles', 'mids', 'snap', 'temp-line', 'temp-pts', 'picks'];
+  hide.forEach((l) => map.getLayer(l) && map.setLayoutProperty(l, 'visibility', 'none'));
+  // Reports are printed: use the light map style and draw casings only for firm vectors.
+  const casingFilter = map.getFilter('path-casing');
+  map.setFilter('path-casing', ['==', ['get', 'status'], 'firm']);
+  map.setPaintProperty('bg', 'background-color', '#f3f4f6');
+  map.setPaintProperty('asset-casing', 'line-color', '#ffffff');
+  map.fitBounds(bounds, { padding: 70, duration: 0, maxZoom: 19, bearing: 0 });
+  await Promise.race([new Promise((r) => map.once('idle', r)), new Promise((r) => setTimeout(r, 8000))]);
+  const shot = await new Promise((resolve) => { map.once('render', () => { try { resolve(map.getCanvas().toDataURL('image/png')); } catch { resolve(null); } }); map.triggerRepaint(); });
+  // Compose: map image plus labels, scale bar and north arrow (HTML labels are not in the canvas).
+  const canvas = map.getCanvas(), W = canvas.width, H = canvas.height, k = W / canvas.clientWidth;
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const g = out.getContext('2d');
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, W, H);
+  if (shot) { const img = new Image(); await new Promise((r, j) => { img.onload = r; img.onerror = j; img.src = shot; }); g.drawImage(img, 0, 0); }
+  const tag = (ll, text, colour, fg = '#111', fill = '#fff') => {
+    const q = map.project(ll); g.font = `bold ${12 * k}px system-ui, sans-serif`;
+    const w = g.measureText(text).width + 10 * k, h = 18 * k, x = q.x * k - w / 2, y = q.y * k - h / 2;
+    g.fillStyle = fill; g.strokeStyle = colour; g.lineWidth = 2 * k; g.beginPath(); g.roundRect ? g.roundRect(x, y, w, h, 4 * k) : g.rect(x, y, w, h); g.fill(); g.stroke();
+    g.fillStyle = fg; g.textBaseline = 'middle'; g.fillText(text, x + 5 * k, y + h / 2);
+  };
+  for (const a of project.assets) tag(toLL(labelPoint(a.points)), a.name, ASSET_COLOUR, '#fff', ASSET_COLOUR);
+  for (const x of sections) tag(toLL(midpointOf(x.points)), x.worst != null ? `${x.label} · ${Math.round(conv(x.worst))}` : x.label, x.worst != null ? bandColour(x.worst) : '#888');
+  for (const v of firm) { const r = results.get(v.id); if (r?.speeds) tag(toLL(r.crossing.points[0]), v.name, bandColour(r.worst)); }
+  for (const v of firm) for (const c of v.caps || []) tag(toLL(c.point), c.type === 'stop' ? 'STOP' : `≤${Math.round(conv(c.kph))}`, '#fbbf24', '#fff', '#111827');
+  // Scale bar (a round number of metres about a fifth of the width) and north arrow.
+  const mpp = metresPerPixel() / k, target = (W / 5) * mpp, pow = 10 ** Math.floor(Math.log10(target));
+  const len = [1, 2, 5, 10].map((m) => m * pow).filter((m) => m <= target).pop() || pow, px = len / mpp;
+  g.fillStyle = '#fff'; g.fillRect(16 * k, H - 44 * k, px + 24 * k, 30 * k);
+  g.fillStyle = '#111'; g.fillRect(28 * k, H - 24 * k, px, 4 * k);
+  g.font = `${12 * k}px system-ui, sans-serif`; g.fillText(`${len} m`, 28 * k, H - 32 * k);
+  const nx = W - 36 * k, ny = 22 * k;
+  g.fillStyle = '#ffffffdd'; g.beginPath(); g.arc(nx, ny + 18 * k, 26 * k, 0, 2 * Math.PI); g.fill(); g.fillStyle = '#111';
+  g.beginPath(); g.moveTo(nx, ny); g.lineTo(nx - 9 * k, ny + 26 * k); g.lineTo(nx, ny + 20 * k); g.lineTo(nx + 9 * k, ny + 26 * k); g.closePath(); g.fill();
+  g.font = `bold ${12 * k}px system-ui, sans-serif`; g.fillText('N', nx - 4 * k, ny + 40 * k);
+  hide.forEach((l) => map.getLayer(l) && map.setLayoutProperty(l, 'visibility', 'visible'));
+  map.setFilter('path-casing', casingFilter); applyMapTheme();
+  map.jumpTo(prevView); selected = prevSel; renderAll();
+  return new Promise((r) => out.toBlob(r, 'image/png'));
+}
+
+// First render of the side panel, once everything above is defined.
+renderKey(); renderProject(); renderLock();
