@@ -9,8 +9,8 @@ import { newProject, newVector, resolveVector, pathLength } from './model.js';
 import { makeFrame } from './frames.js';
 import { planToLocal, localToPlan, scaleFromTwoPoints, rescale, checkError, measureOnPlan, fitSimilarity } from './calibrate.js';
 import { putBlob, getBlob, deleteBlob, loadJSON, saveJSON, blobToDataURL, dataURLToBlob } from './store.js';
-import { area, perimeter, polylineLength, dist, centroid, pointInPolygon, nearestOnPolyline, offsetPolygon, simplify, rectangleFrom, minDistance, bufferLine } from './geometry/polygon.js';
-import { fetchOSM } from './osm.js';
+import { area, perimeter, polylineLength, dist, centroid, pointInPolygon, nearestOnPolyline, offsetPolygon, simplify, rectangleFrom, minDistance, bufferLine, convexHull } from './geometry/polygon.js';
+import { fetchOSM, fetchBuildingAt } from './osm.js';
 import { generateVectors } from './autogen.js';
 import { requiredProtection } from './summary.js';
 
@@ -83,6 +83,20 @@ function setBasemap(kind) {
   const src = basemapSource(kind);
   if (src) { map.addSource('base', src); map.addLayer({ id: 'base', type: 'raster', source: 'base' }, 'plan-anchor'); }
   project.basemap = kind; save();
+  setBuildingSource();
+}
+
+// Building outlines for "Tap a building" come from MapTiler's vector tiles (the same service as
+// the basemap), drawn invisibly so a tap can find them. Without a key they come from OpenStreetMap.
+let buildingKey = null;
+function setBuildingSource() {
+  if (buildingKey === mtKey || !map.getLayer('plan-anchor')) return;
+  if (map.getLayer('mt-building')) map.removeLayer('mt-building');
+  if (map.getSource('mt-vec')) map.removeSource('mt-vec');
+  buildingKey = mtKey;
+  if (!mtKey) return;
+  map.addSource('mt-vec', { type: 'vector', url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${encodeURIComponent(mtKey)}` });
+  map.addLayer({ id: 'mt-building', type: 'fill', source: 'mt-vec', 'source-layer': 'building', minzoom: 13, paint: { 'fill-color': '#000', 'fill-opacity': 0 } }, 'plan-anchor');
 }
 
 const EMPTY = { type: 'FeatureCollection', features: [] };
@@ -118,6 +132,7 @@ map.on('load', () => {
   map.addLayer({ id: 'picks', type: 'circle', source: 'picks', paint: { 'circle-radius': 6, 'circle-color': ['get', 'colour'], 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
   $('basemap').value = project.basemap || 'streets';
   setBasemap($('basemap').value);
+  setBuildingSource();
   restorePlan().then(renderAll);
 });
 
@@ -336,7 +351,7 @@ $('undo').addEventListener('click', undo);
 
 // ---------- tools ----------
 const TOOLS = {
-  'asset-tap': { kind: 'tap', title: 'Tap the building to protect', hint: 'Its outline comes from OpenStreetMap. Zoom in close enough to see the buildings.' },
+  'asset-tap': { kind: 'tap', title: 'Tap the building to protect', hint: 'Zoom in close enough to see the building, then tap inside it. Its outline comes from the map data; check it afterwards and drag its points if needed.' },
   'asset-draw': { kind: 'draw', what: 'asset', min: 3, closed: true, title: 'Draw the asset outline', hint: 'Tap each corner. Finish when the outline is complete.' },
   'asset-rect': { kind: 'draw', what: 'asset', min: 3, max: 3, rect: true, closed: true, title: 'Draw a rectangle', hint: 'Tap two corners along one side, then tap how deep it goes.' },
   'lop-draw': { kind: 'draw', what: 'lop', min: 2, title: 'Draw the line of protection', hint: 'Tap along the line where vehicles must be stopped.' },
@@ -357,7 +372,7 @@ function startTool(name, button) {
   $('db-title').textContent = t.title;
   $('db-hint').textContent = t.hint;
   $('db-undo').hidden = $('db-finish').hidden = t.kind === 'tap' || !!t.rect;
-  if (t.kind === 'tap' && !project.osm) loadOSM(map.getCenter());
+  if (t.kind === 'tap' && !project.osm && !map.getLayer('mt-building')) loadOSM(map.getCenter());
   renderTemp();
 }
 function cancelMode() {
@@ -461,17 +476,72 @@ function renderTemp() {
 }
 
 // ---------- tap a building ----------
+// Where the outline comes from, in order: map data already loaded for the site; MapTiler's
+// building tiles (quick, and they work wherever the basemap works); OpenStreetMap's Overpass
+// service, asked for just the building at that point.
 async function tapBuilding(lngLat) {
   ensureFrame(lngLat);
-  if (!project.osm || dist(toLocal(lngLat), project.osm.centre) > project.osm.radius - 50) await loadOSM(lngLat);
   const p = toLocal(lngLat);
-  const b = osmBuildings(true).find((x) => !x.wall && !x.water && pointInPolygon(p, x.points));
-  if (!b) { $('db-hint').textContent = 'No building outline there. Zoom in and tap inside a building, or draw the outline instead.'; return; }
+  let outline = null, note = '';
+  let osmId;
+  if (project.osm && dist(p, project.osm.centre) < project.osm.radius - 50) {
+    const b = osmBuildings(true).find((x) => !x.wall && !x.water && pointInPolygon(p, x.points));
+    if (b) { outline = b.points; osmId = b.id; }
+  }
+  if (!outline) {
+    const tile = tileBuildingAt(lngLat);
+    if (tile?.pieces.length === 1) outline = tile.pieces[0];
+    else {
+      if (map.getZoom() < 15 && !tile) { $('db-hint').textContent = 'Zoom in closer to the building, then tap inside it.'; return; }
+      $('db-hint').textContent = 'Looking up the building outline…';
+      try {
+        const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), 12000);
+        const found = await fetchBuildingAt({ lat: lngLat.lat, lng: lngLat.lng }, ctl.signal).finally(() => clearTimeout(timer));
+        outline = found.map((b) => b.ll.map(toLocal)).find((ring) => pointInPolygon(p, ring)) || null;
+      } catch (e) { note = e.name === 'AbortError' ? 'The map data service did not answer in time.' : e.message; }
+      if (!outline && tile) {
+        // The building is split across map tiles and the full outline could not be fetched: join the pieces.
+        outline = convexHull(tile.pieces.flat());
+        note = 'The outline was joined from map tiles and may be simplified: check it and drag its points if needed.';
+      }
+    }
+  }
+  if (!outline) {
+    $('db-hint').textContent = note
+      ? `Could not find the building outline (${note}). Try again, or use Draw outline or Rectangle instead.`
+      : 'No building outline there. Zoom in and tap inside a building, or use Draw outline or Rectangle instead.';
+    return;
+  }
   pushHistory();
-  const a = { id: uid('ast'), name: `Asset ${project.assets.length + 1}`, points: b.points.map((q) => ({ ...q })), osmId: b.id };
+  const a = { id: uid('ast'), name: `Asset ${project.assets.length + 1}`, points: outline.map((q) => ({ x: q.x, y: q.y })), ...(osmId != null ? { osmId } : {}) };
   project.assets.push(a);
   selected = { kind: 'asset', id: a.id };
   cancelMode(); save(); renderAll();
+  if (note) $('osm-status').textContent = note;
+}
+
+// The tile building under a point: its outline pieces (more than one if the tiles split it).
+function tileBuildingAt(lngLat) {
+  if (!map.getLayer('mt-building') || map.getZoom() < 13) return null;
+  const pt = map.project(lngLat), p = toLocal(lngLat);
+  const ringsOf = (f) => (f.geometry.type === 'Polygon' ? [f.geometry.coordinates] : f.geometry.type === 'MultiPolygon' ? f.geometry.coordinates : [])
+    .map((poly) => { const r = poly[0].map(([lng, lat]) => toLocal({ lng, lat })); if (r.length > 3 && dist(r[0], r[r.length - 1]) < 1e-6) r.pop(); return r; })
+    .filter((r) => r.length >= 3);
+  const hit = map.queryRenderedFeatures([[pt.x - 2, pt.y - 2], [pt.x + 2, pt.y + 2]], { layers: ['mt-building'] })
+    .find((f) => ringsOf(f).some((r) => pointInPolygon(p, r)));
+  if (!hit) return null;
+  const mine = ringsOf(hit).find((r) => pointInPolygon(p, r));
+  let pieces = [mine];
+  if (hit.id != null) {
+    // Other pieces of the same building in neighbouring tiles.
+    const box = (r) => r.reduce((b, q) => [Math.min(b[0], q.x), Math.min(b[1], q.y), Math.max(b[2], q.x), Math.max(b[3], q.y)], [Infinity, Infinity, -Infinity, -Infinity]);
+    const same = (r1, r2) => box(r1).every((v, i) => Math.abs(v - box(r2)[i]) < 0.5);
+    for (const f of map.querySourceFeatures('mt-vec', { sourceLayer: 'building', filter: ['==', ['id'], hit.id] })) {
+      for (const r of ringsOf(f)) if (!pieces.some((q) => same(q, r))) pieces.push(r);
+    }
+  }
+  pieces = pieces.map((r) => simplify([...r, r[0]], 0.2).slice(0, -1)).filter((r) => r.length >= 3);
+  return { pieces };
 }
 
 // ---------- OpenStreetMap buildings and roads ----------
