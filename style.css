@@ -39,6 +39,7 @@ fieldset.start input[type="number"] { width: 5rem; }
 input, select, textarea, button { font: inherit; color: var(--fg); }
 input:not([type="radio"]):not([type="checkbox"]), select, textarea { background: var(--input); border: 1px solid var(--input-line); border-radius: 4px; }
 button { cursor: pointer; padding: .3rem .7rem; background: var(--surface-2); border: 1px solid var(--input-line); border-radius: 4px; }
+button:disabled { opacity: .5; cursor: default; }
 button.copy { font-size: .8rem; }
 .topbar button { background: transparent; color: var(--head-fg); border-color: currentColor; font-size: .8rem; }
 .hint { color: var(--muted); font-size: .85rem; }

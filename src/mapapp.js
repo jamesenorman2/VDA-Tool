@@ -689,6 +689,8 @@ function labelPoint(poly) {
 function renderAll(fast) {
   if (!map.getSource('path')) return;
   results = new Map(project.vectors.map((v) => [v.id, compute(v)]));
+  $('vec-clear-sugg').disabled = !project.vectors.some((v) => v.status === 'suggested');
+  $('vec-clear-all').disabled = !project.vectors.length;
   sections = requiredProtection(project.lops, project.vectors.map((v) => ({ vector: v, result: results.get(v.id) })));
   const sel = (kind, id) => !!selected && selected.kind === kind && selected.id === id;
   const line = (coords, props) => ({ type: 'Feature', properties: props, geometry: { type: 'LineString', coordinates: coords } });
@@ -1118,6 +1120,39 @@ $('ag-run').addEventListener('click', async () => {
   } catch (e) {
     $('ag-status').textContent = `The search failed: ${e.message}`;
   } finally { btn.disabled = false; }
+});
+
+// ---------- clear vectors ----------
+// Suggestions go straight away (Undo brings them back). Clearing accepted or drawn vectors as well
+// needs a second press, since those are the assessor's work.
+let clearVecArmed = false;
+$('vec-clear-sugg').addEventListener('click', () => {
+  if (guard()) return;
+  const n = project.vectors.filter((v) => v.status === 'suggested').length;
+  if (!n) return;
+  pushHistory();
+  project.vectors = project.vectors.filter((v) => v.status !== 'suggested');
+  if (selected?.kind === 'vector' && !findItem(selected)) selected = null;
+  $('vec-clear-status').textContent = `Cleared ${n} suggestion${n === 1 ? '' : 's'}. Accepted, rejected and drawn vectors are kept. Undo brings them back.`;
+  save(); renderAll();
+});
+$('vec-clear-all').addEventListener('click', () => {
+  if (guard()) return;
+  const n = project.vectors.length;
+  if (!n) return;
+  const kept = project.vectors.filter((v) => v.status !== 'suggested').length;
+  if (kept && !clearVecArmed) {
+    clearVecArmed = true;
+    $('vec-clear-status').textContent = `This also deletes ${kept} accepted, rejected or drawn vector${kept === 1 ? '' : 's'}. Press "Clear all vectors" again to continue.`;
+    setTimeout(() => { clearVecArmed = false; }, 8000);
+    return;
+  }
+  clearVecArmed = false;
+  pushHistory();
+  project.vectors = [];
+  if (selected?.kind === 'vector') selected = null;
+  $('vec-clear-status').textContent = `Cleared ${n} vector${n === 1 ? '' : 's'}. Undo brings them back.`;
+  save(); renderAll();
 });
 
 // Run the search in a worker where possible, so the page stays responsive on slower devices.
