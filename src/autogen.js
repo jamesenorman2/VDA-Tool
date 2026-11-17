@@ -1,8 +1,10 @@
 // Automatic attack-vector search (first version). Everything is in the local metric frame.
 //
 // Inputs: lines of protection, assets, obstacles (polygons a vehicle cannot pass through:
-// buildings from OpenStreetMap, assets and anything the assessor draws) and roads (polylines).
-// Everything that is not an obstacle is treated as traversable (spec decision Q13).
+// buildings, walls and water from OpenStreetMap, assets and anything the assessor draws) and roads
+// (polylines). With `openGround` everything that is not an obstacle is treated as traversable
+// (spec decision Q13); without it (the default in the app) routes keep to the roads and leave
+// them only for the last `roadReach` metres to the line.
 //
 // Two kinds of candidate approach are searched for each sample point along each LoP:
 //  - Open ground: straight runs outward from the LoP at 5° steps, until an obstacle, the LoP
@@ -167,7 +169,7 @@ function walkBack(firstHops, budget, cap = 60) {
  * @returns {{ candidates: object[], all: object[], stats: object }} candidates (kept, fastest first) and all found, each
  *   { points, vertexOptions, start, kind, lopId, s, speeds, worst, note }
  */
-export function generateVectors({ lops, assets = [], obstacles = [], roads = [], radius = 440, step = 10, binLength = 25, maxResults = 10, roadReach = 60, clearance = 1 }) {
+export function generateVectors({ lops, assets = [], obstacles = [], roads = [], radius = 440, step = 10, binLength = 25, maxResults = 10, roadReach = 60, clearance = 1, openGround = true }) {
   const index = makeObstacleIndex([...obstacles, ...assets.map((a) => a.points)], clearance);
   // Impact angle (0–90°) of the final leg against the LoP at the sample point.
   const angleAt = (pts, tangent) => {
@@ -193,9 +195,9 @@ export function generateVectors({ lops, assets = [], obstacles = [], roads = [],
     for (const smp of lopSamples(lop, assets, step)) {
       const sides = smp.twoSided ? [smp.n, mul(smp.n, -1)] : [smp.n];
       for (const n of sides) {
-        // Open ground.
+        // Open ground (only when the assessor allows routes off the roads).
         const blockers = new Set();
-        for (let deg = -75; deg <= 75; deg += 5) {
+        for (let deg = -75; openGround && deg <= 75; deg += 5) {
           const u = rot(n, (deg * Math.PI) / 180);
           const from = add(smp.p, mul(u, 0.5)), far = add(smp.p, mul(u, radius));
           const tb = index.firstHit(from, far, blockers), tl = lopHit(from, far);

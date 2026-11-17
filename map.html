@@ -101,7 +101,7 @@
           <button id="osm-load">Load buildings and roads</button>
           <button data-tool="obstacle-draw">Draw obstacle</button>
         </div>
-        <p class="hint" id="osm-status">Buildings stop vehicles; everything else counts as drivable. Building and road data comes from OpenStreetMap.</p>
+        <p class="hint" id="osm-status">Buildings, walls, lakes, ponds and rivers stop vehicles. Data comes from OpenStreetMap.</p>
         <div class="btnrow">
           <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
           <label class="chk"><input type="checkbox" id="snap" checked> Snap to points and edges</label>
@@ -117,8 +117,13 @@
             <label class="inl">Study radius <input id="ag-radius" type="number" min="50" max="1000" step="10" value="440" aria-label="Study radius in metres"> m</label>
             <label class="inl">Keep <input id="ag-max" type="number" min="1" max="50" value="10" aria-label="Number of suggestions"></label>
           </div>
+          <label>Routes
+            <select id="ag-ground">
+              <option value="roads">Follow roads, then up to 60 m off the road to the line</option>
+              <option value="open">Roads and open ground (grass, verges, car parks)</option>
+            </select></label>
           <button id="ag-run" class="primary">Find attack vectors</button>
-          <p class="hint" id="ag-status">Searches open ground, round building corners and along roads for the fastest approaches to each line of protection. Results are suggestions: accept or reject each one.</p>
+          <p class="hint" id="ag-status">Searches for the fastest approaches to each line of protection. "Follow roads" keeps to the mapped roads, service roads and paths, and leaves them only for the last stretch to the line. "Roads and open ground" also tries straight runs across open land and round building corners. Buildings, walls, lakes, ponds and rivers block every route. Results are suggestions: accept or reject each one.</p>
         </div>
         <button data-tool="vector-draw">Draw a vector yourself</button>
         <label>Speeds in
