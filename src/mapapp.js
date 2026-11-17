@@ -1192,6 +1192,30 @@ $('ag-run').addEventListener('click', async () => {
   } finally { btn.disabled = false; }
 });
 
+// ---------- clear the map ----------
+// Removes everything drawn (assets, lines, obstacles, vectors) but keeps the project details, the
+// site plan and the loaded map data, so people can try things out and start again. Needs a second
+// press; Undo brings it all back.
+let clearMapArmed = false;
+$('map-clear').addEventListener('click', () => {
+  if (guard()) return;
+  cancelMode();
+  const n = project.assets.length + project.lops.length + project.obstacles.length + project.vectors.length;
+  if (!n) { $('osm-status').textContent = 'The map is already clear.'; return; }
+  if (!clearMapArmed) {
+    clearMapArmed = true;
+    $('osm-status').textContent = `This removes ${[[project.assets.length, 'asset'], [project.lops.length, 'line of protection', 'lines of protection'], [project.obstacles.length, 'obstacle'], [project.vectors.length, 'vector']].filter(([k]) => k).map(([k, one, many]) => `${k} ${k === 1 ? one : many || one + 's'}`).join(', ')}. Press "Clear map" again to continue (Undo brings it back).`;
+    setTimeout(() => { clearMapArmed = false; }, 8000);
+    return;
+  }
+  clearMapArmed = false;
+  pushHistory();
+  Object.assign(project, { assets: [], lops: [], obstacles: [], vectors: [], vectorCounter: 1 });
+  selected = null; selectedVertex = null;
+  $('osm-status').textContent = 'Map cleared. Project details, the site plan and loaded map data are kept. Undo brings the drawing back; "New project" starts again from nothing.';
+  save(); renderAll();
+});
+
 // ---------- clear vectors ----------
 // Suggestions go straight away (Undo brings them back). Clearing accepted or drawn vectors as well
 // needs a second press, since those are the assessor's work.
