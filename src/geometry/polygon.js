@@ -143,3 +143,14 @@ export function bufferLine(pts, hw) {
   }
   return [...left, ...right.reverse()];
 }
+
+// Convex hull (counter-clockwise), used to join pieces of one building split across map tiles.
+export function convexHull(points) {
+  const P = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  if (P.length < 3) return P;
+  const turn = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower = [], upper = [];
+  for (const p of P) { while (lower.length >= 2 && turn(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop(); lower.push(p); }
+  for (const p of P.slice().reverse()) { while (upper.length >= 2 && turn(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop(); upper.push(p); }
+  return lower.slice(0, -1).concat(upper.slice(0, -1));
+}

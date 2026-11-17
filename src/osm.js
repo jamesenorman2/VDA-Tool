@@ -19,7 +19,17 @@ export function overpassQuery({ lat, lng }, radius) {
 }
 
 export async function fetchOSM(centre, radius, signal) {
-  const body = 'data=' + encodeURIComponent(overpassQuery(centre, radius));
+  return parseOverpass(await overpass(overpassQuery(centre, radius), signal));
+}
+
+// Just the building(s) containing a point: a small, quick request.
+export async function fetchBuildingAt({ lat, lng }, signal) {
+  const q = `[out:json][timeout:15];is_in(${lat},${lng})->.a;(way(pivot.a)["building"];relation(pivot.a)["building"];);out geom;`;
+  return parseOverpass(await overpass(q, signal)).buildings;
+}
+
+async function overpass(query, signal) {
+  const body = 'data=' + encodeURIComponent(query);
   let last;
   for (const url of ENDPOINTS) {
     try {
@@ -28,7 +38,7 @@ export async function fetchOSM(centre, radius, signal) {
         const json = await res.json();
         // A server that ran out of time returns a partial answer with a remark: try the next one.
         if (json.remark && /runtime error|timed out|out of memory/i.test(json.remark)) { last = new Error('The map data service ran out of time.'); continue; }
-        return parseOverpass(json);
+        return json;
       }
       last = new Error(res.status === 429 || res.status === 504 ? 'The map data service is busy. Try again in a minute.' : `Map data request failed (${res.status})`);
     } catch (e) {
