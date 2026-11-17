@@ -19,8 +19,8 @@ npm test       # unit tests for the maths and sketch geometry
 - `src/model.js` – project / vector model, migration of the old single-route state, vector → sections
 - `map.html`, `src/mapapp.js` – map assessment: basemap (MapTiler with a key, else OpenStreetMap), plan upload with two-point scale, check measurement and alignment, drawing of asset / line of protection / vectors, per-vector impact results, hand-off to the route calculator
 - `src/geometry/polygon.js` – polygon/polyline helpers: area, offsets (standoff lines), snapping, simplification
-- `src/autogen.js` – automatic attack-vector search: open ground, round building corners, along roads; obstacle-limited bend radii
-- `src/osm.js` – OpenStreetMap buildings and roads via the Overpass API
+- `src/autogen.js` – automatic attack-vector search: along roads (default, leaving them only for the last 60 m), optionally open ground and round building corners; obstacle-limited bend radii
+- `src/osm.js` – OpenStreetMap buildings (including multipolygons), walls, lakes, ponds, rivers and roads via the Overpass API, with fallback servers
 - `src/summary.js` – lines of protection split into lettered sections; required protection per section; draft rating designations
 - `report.html`, `src/report.js` – assessment report built from the map project: printable (save as PDF) and Word download (docx). A house Word template (.docx) can be loaded on the report page ("Word template…"): the download then uses its page layout, headers, footers and styles, without its front page or contents page. The template is kept in the browser only (IndexedDB) and is never uploaded or committed
 - `vendor/pdfjs-3.11.174/`, `vendor/docx-8.5.0/`, `vendor/jszip-3.10.1/` – PDF plan reading and Word export

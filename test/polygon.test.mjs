@@ -67,3 +67,24 @@ test('standoff lines (outer corners) never come inside the standoff and use few 
   for (let i = 0; i < o.length; i++) { const a = o[i], b = o[(i + 1) % o.length]; assert.ok(nearestOnPolyline({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }, square, true).d >= 10 - 1e-9); }
   assert.ok(o.length <= 20, String(o.length));
 });
+
+test('Overpass response: multipolygon buildings and water become rings; rivers and streams are kept', async () => {
+  const { parseOverpass } = await import('../src/osm.js');
+  const g = (pts) => pts.map(([lon, lat]) => ({ lon, lat }));
+  const r = parseOverpass({ elements: [
+    { type: 'relation', id: 9, tags: { building: 'warehouse', type: 'multipolygon' }, members: [
+      { type: 'way', role: 'outer', geometry: g([[0, 0], [2, 0], [2, 2]]) },
+      { type: 'way', role: 'outer', geometry: g([[0, 0], [0, 2], [2, 2]]) }, // reversed half
+      { type: 'way', role: 'inner', geometry: g([[0.5, 0.5], [1, 0.5], [1, 1], [0.5, 0.5]]) },
+    ] },
+    { type: 'way', id: 10, tags: { natural: 'water' }, geometry: g([[5, 5], [6, 5], [6, 6], [5, 5]]) },
+    { type: 'way', id: 11, tags: { waterway: 'stream' }, geometry: g([[0, 0], [9, 9]]) },
+    { type: 'way', id: 12, tags: { waterway: 'river', width: '15' }, geometry: g([[0, 0], [9, 0]]) },
+    { type: 'way', id: 13, tags: { waterway: 'ditch' }, geometry: g([[0, 0], [9, 0]]) },
+  ] });
+  assert.equal(r.buildings.length, 1);
+  assert.equal(r.buildings[0].id, 'r9');
+  assert.equal(r.buildings[0].ll.length, 4);
+  assert.deepEqual(r.water.map((w) => w.id), [10]);
+  assert.deepEqual(r.waterways.map((w) => [w.id, w.width]), [[11, 2], [12, 15]]);
+});

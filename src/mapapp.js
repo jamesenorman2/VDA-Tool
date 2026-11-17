@@ -43,6 +43,7 @@ function blankProject() {
 }
 project.obstacles = project.obstacles || []; project.osmExcluded = project.osmExcluded || [];
 project.details = project.details || {}; project.issues = project.issues || [];
+if (project.searchGround) $('ag-ground').value = project.searchGround;
 let saveTimer;
 function save() { clearTimeout(saveTimer); saveTimer = setTimeout(() => saveJSON(KEY_PROJECT, project), 250); }
 const isEmpty = () => !project.plan && !project.osm && !project.assets.length && !project.lops.length && !project.vectors.length && !project.obstacles?.length;
@@ -88,7 +89,7 @@ const EMPTY = { type: 'FeatureCollection', features: [] };
 map.on('load', () => {
   map.addLayer({ id: 'plan-anchor', type: 'background', paint: { 'background-opacity': 0 } }); // keeps plan above basemap
   for (const id of ['osm', 'obstacle', 'asset', 'lop', 'req', 'raw', 'path', 'handles', 'mids', 'temp', 'picks', 'snap']) map.addSource(id, { type: 'geojson', data: EMPTY });
-  map.addLayer({ id: 'osm-fill', type: 'fill', source: 'osm', paint: { 'fill-color': ['case', ['get', 'excluded'], '#2a9d8f', '#6b7280'], 'fill-opacity': ['case', ['get', 'sel'], 0.55, ['get', 'excluded'], 0.15, 0.3] } });
+  map.addLayer({ id: 'osm-fill', type: 'fill', source: 'osm', paint: { 'fill-color': ['case', ['get', 'excluded'], '#2a9d8f', ['get', 'water'], '#1d6fd6', '#6b7280'], 'fill-opacity': ['case', ['get', 'sel'], 0.55, ['get', 'excluded'], 0.15, 0.3] } });
   map.addLayer({ id: 'osm-line', type: 'line', source: 'osm', paint: { 'line-color': ['case', ['get', 'excluded'], '#2a9d8f', '#4b5563'], 'line-width': ['case', ['get', 'sel'], 2.5, 0.8], 'line-dasharray': [1, 0] } });
   map.addLayer({ id: 'obstacle-fill', type: 'fill', source: 'obstacle', paint: { 'fill-color': '#7c3aed', 'fill-opacity': ['case', ['get', 'sel'], 0.5, 0.3] } });
   map.addLayer({ id: 'obstacle-line', type: 'line', source: 'obstacle', paint: { 'line-color': '#7c3aed', 'line-width': 2 } });
@@ -464,7 +465,7 @@ async function tapBuilding(lngLat) {
   ensureFrame(lngLat);
   if (!project.osm || dist(toLocal(lngLat), project.osm.centre) > project.osm.radius - 50) await loadOSM(lngLat);
   const p = toLocal(lngLat);
-  const b = osmBuildings(true).find((x) => !x.wall && pointInPolygon(p, x.points));
+  const b = osmBuildings(true).find((x) => !x.wall && !x.water && pointInPolygon(p, x.points));
   if (!b) { $('db-hint').textContent = 'No building outline there. Zoom in and tap inside a building, or draw the outline instead.'; return; }
   pushHistory();
   const a = { id: uid('ast'), name: `Asset ${project.assets.length + 1}`, points: b.points.map((q) => ({ ...q })), osmId: b.id };
@@ -475,7 +476,7 @@ async function tapBuilding(lngLat) {
 
 // ---------- OpenStreetMap buildings and roads ----------
 const osmBuildings = (includeExcluded) => (project.osm?.buildings || []).filter((b) => includeExcluded || !(project.osmExcluded || []).includes(b.id));
-let osmLoading = null;
+let osmLoading = null, osmError = '';
 async function loadOSM(centreLL, minRadius = 0) {
   if (osmLoading) return osmLoading;
   ensureFrame(centreLL);
@@ -483,16 +484,20 @@ async function loadOSM(centreLL, minRadius = 0) {
   $('osm-status').textContent = 'Loading buildings and roads from OpenStreetMap…';
   osmLoading = fetchOSM({ lat: centreLL.lat, lng: centreLL.lng }, radius).then((d) => {
     project.osm = {
-      centre: toLocal(centreLL), radius, at: new Date().toISOString(),
+      centre: toLocal(centreLL), radius, at: new Date().toISOString(), v: 2, // v2: includes water
       buildings: [
         ...d.buildings.map((b) => ({ id: b.id, points: b.ll.map(toLocal) })),
         ...(d.walls || []).map((w) => ({ id: w.id, wall: w.kind, points: bufferLine(w.ll.map(toLocal), 0.3) })),
+        ...(d.water || []).map((w) => ({ id: w.id, water: 'water', points: w.ll.map(toLocal) })),
+        ...(d.waterways || []).map((w) => ({ id: w.id, water: w.kind, points: bufferLine(w.ll.map(toLocal), w.width / 2) })),
       ],
       roads: d.roads.map((r) => ({ id: r.id, kind: r.kind, points: r.ll.map(toLocal) })),
     };
-    $('osm-status').textContent = `${d.buildings.length} buildings, ${(d.walls || []).length} walls and barriers, and ${d.roads.length} roads loaded within ${radius} m. Tap one to see it or mark it as not an obstacle.`;
+    const nWater = (d.water || []).length + (d.waterways || []).length;
+    $('osm-status').textContent = `${d.buildings.length} buildings, ${(d.walls || []).length} walls and barriers, ${nWater} lakes, ponds and watercourses, and ${d.roads.length} roads loaded within ${radius} m. Tap one to see it or mark it as not an obstacle.`;
     save(); renderAll();
-  }).catch((e) => { $('osm-status').textContent = `Could not load map data: ${e.message}`; }).finally(() => { osmLoading = null; });
+    return true;
+  }).catch((e) => { $('osm-status').textContent = `Could not load map data: ${e.message}`; osmError = e.message; return false; }).finally(() => { osmLoading = null; });
   return osmLoading;
 }
 $('osm-load').addEventListener('click', () => {
@@ -695,7 +700,7 @@ function renderAll(fast) {
   const poly = (pts, props) => ({ type: 'Feature', properties: props, geometry: { type: 'Polygon', coordinates: [[...pts.map(toLL), toLL(pts[0])]] } });
   setData('obstacle', { type: 'FeatureCollection', features: frame ? project.obstacles.map((o) => poly(o.points, { kind: 'obstacle', id: o.id, sel: sel('obstacle', o.id) })) : [] });
   const assetOsm = new Set(project.assets.map((a) => a.osmId).filter(Boolean));
-  setData('osm', { type: 'FeatureCollection', features: frame ? osmBuildings(true).filter((b) => !assetOsm.has(b.id)).map((b) => poly(b.points, { kind: 'osm', id: b.id, sel: sel('osm', b.id), excluded: project.osmExcluded.includes(b.id) })) : [] });
+  setData('osm', { type: 'FeatureCollection', features: frame ? osmBuildings(true).filter((b) => !assetOsm.has(b.id)).map((b) => poly(b.points, { kind: 'osm', id: b.id, sel: sel('osm', b.id), excluded: project.osmExcluded.includes(b.id), water: !!b.water })) : [] });
   $('obs-count').textContent = `${osmBuildings().length + project.obstacles.length} obstacles`;
   const raw = [], path = [];
   for (const v of project.vectors) {
@@ -958,6 +963,7 @@ $('proj-open').addEventListener('change', async (e) => {
     if (!data || !Array.isArray(data.vectors) || !Array.isArray(data.lops)) throw new Error('not a project');
     const img = data.planImage; delete data.planImage;
     project = { ...blankProject(), ...data };
+    if (project.searchGround) $('ag-ground').value = project.searchGround;
     frame = project.anchor ? makeFrame(project.anchor) : null;
     if (planURL) { URL.revokeObjectURL(planURL); planURL = null; }
     if (img && project.plan) { const b = await dataURLToBlob(img); await putBlob(`plan:${project.id}`, b); planURL = URL.createObjectURL(b); } else project.plan = null;
@@ -972,7 +978,7 @@ $('proj-clear').addEventListener('click', async () => {
   clearArmed = false;
   await deleteBlob(`plan:${project.id}`);
   const view = project.view, basemap = project.basemap;
-  project = { ...blankProject(), view, basemap }; frame = null; selected = null; selectedVertex = null; history.length = 0;
+  project = { ...blankProject(), view, basemap }; $('ag-ground').value = 'roads'; frame = null; selected = null; selectedVertex = null; history.length = 0;
   if (planURL) { URL.revokeObjectURL(planURL); planURL = null; }
   save(); showPlan(); renderAll(); $('proj-status').textContent = 'Started a new project.';
 });
@@ -1032,12 +1038,12 @@ function renderShapeDetail(box, item) {
     }
   }
   facts.push(['Points', item.points.length]);
-  const title = k === 'osm' ? (item.wall ? `Wall or barrier (${esc(item.wall.replace('_', ' '))}, OpenStreetMap)` : 'Building (OpenStreetMap)') : esc(item.name);
+  const title = k === 'osm' ? (item.wall ? `Wall or barrier (${esc(item.wall.replace('_', ' '))}, OpenStreetMap)` : item.water ? `${item.water === 'water' ? 'Lake or pond' : `Watercourse (${esc(item.water)})`} (OpenStreetMap)` : 'Building (OpenStreetMap)') : esc(item.name);
   if (k === 'asset') buttons += '<button id="s-lop">Line of protection round this asset</button>';
   if (k === 'lop') buttons += `<label class="chk"><input type="checkbox" id="s-closed"${item.closed ? ' checked' : ''}> Closed loop</label>`;
   if (k === 'osm') {
     const ex = project.osmExcluded.includes(item.id);
-    buttons += `<button id="s-exclude">${ex ? 'Count it as an obstacle' : 'Not an obstacle'}</button>${item.wall ? '' : '<button id="s-asset">Make it the asset</button>'}`;
+    buttons += `<button id="s-exclude">${ex ? 'Count it as an obstacle' : 'Not an obstacle'}</button>${item.wall || item.water ? '' : '<button id="s-asset">Make it the asset</button>'}`;
   }
   if (k !== 'osm' && selectedVertex != null) buttons += `<button id="s-delpt">Delete point ${selectedVertex + 1}</button>`;
   if (k !== 'osm') buttons += `<button id="s-del" class="quiet">Delete ${k === 'lop' ? 'line' : k}</button>`;
@@ -1076,12 +1082,17 @@ $('ag-run').addEventListener('click', async () => {
     const pts = project.lops.flatMap((l) => l.points);
     const c = { x: (Math.min(...pts.map((q) => q.x)) + Math.max(...pts.map((q) => q.x))) / 2, y: (Math.min(...pts.map((q) => q.y)) + Math.max(...pts.map((q) => q.y))) / 2 };
     const reach = Math.max(...pts.map((q) => dist(q, c))) + radius + 20;
-    if (!project.osm || dist(c, project.osm.centre) + reach > project.osm.radius) {
+    if (!project.osm || project.osm.v !== 2 || dist(c, project.osm.centre) + reach > project.osm.radius) {
       $('ag-status').textContent = `${made}Loading buildings and roads for the study area…`;
       const ll = toLL(c);
       $('ag-radius').dataset.reach = String(Math.round(reach));
-      await loadOSM({ lng: ll[0], lat: ll[1] }, reach);
-      if (!project.osm || dist(c, project.osm.centre) + reach > project.osm.radius) $('ag-status').textContent = 'Map data could not be loaded for the whole study area, so results may miss buildings.';
+      const ok = await loadOSM({ lng: ll[0], lat: ll[1] }, reach);
+      if (!ok || !project.osm) {
+        // Without buildings, water and roads every approach looks open: do not search blind.
+        $('ag-status').textContent = `${made}Buildings and roads could not be loaded (${osmError || 'no answer from the map data service'}), so the search did not run: without them every approach would look clear. Press Find attack vectors again in a minute, or draw obstacles and vectors yourself.`;
+        return;
+      }
+      if (dist(c, project.osm.centre) + reach > project.osm.radius) $('ag-status').textContent = `${made}Map data covers only part of the study area, so results near its edge may miss buildings.`;
     }
     $('ag-status').textContent = `${made}Searching…`;
     await new Promise((r) => setTimeout(r, 30));
@@ -1090,9 +1101,10 @@ $('ag-run').addEventListener('click', async () => {
       lops: project.lops, assets: project.assets,
       obstacles: [...osmBuildings().map((b) => b.points), ...project.obstacles.map((o) => o.points)],
       roads: (project.osm?.roads || []).map((r) => r.points),
-      radius, maxResults: keep,
+      radius, maxResults: keep, openGround: $('ag-ground').value === 'open',
     });
     pushHistory();
+    project.searchGround = $('ag-ground').value;
     project.vectors = project.vectors.filter((v) => v.status !== 'suggested');
     let n = 0;
     for (const c of res.candidates) {
@@ -1100,6 +1112,7 @@ $('ag-run').addEventListener('click', async () => {
       project.vectors.push(newVector({ name: `G${project.vectorCounter++}`, source: 'generated', status: 'suggested', start: c.start, points: c.points, vertexOptions: c.vertexOptions, note: c.note, kind: c.kind }));
     }
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
+    if (!n) { $('ag-status').textContent = `${made}No approaches found. ${project.searchGround === 'open' ? '' : (project.osm?.roads || []).length ? 'No road comes within 60 m of the line: try "Roads and open ground". ' : 'No roads were found near the site: try "Roads and open ground". '}`; selected = null; save(); renderAll(); return; }
     $('ag-status').textContent = `${made}${n} suggestions from ${res.stats.samples.toLocaleString()} candidate routes (${secs} s). They are dashed on the map: open each to accept or reject it.`;
     selected = null; save(); renderAll();
   } catch (e) {

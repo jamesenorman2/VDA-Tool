@@ -68,3 +68,18 @@ test('round-the-corner approaches are found when a building blocks the straight 
   for (const c of corner) for (const q of c.points.slice(0, -1)) assert.ok(!index.inside(q));
   assert.ok(Math.max(...corner.map((x) => x.worst)) > Math.max(...open.map((x) => x.worst)));
 });
+
+test('with open ground off, every suggestion follows a road and only the last leg leaves it', () => {
+  const asset = { points: box(-10, -10, 10, 10) };
+  const lop = { id: 'L', closed: true, points: box(-20, -20, 20, 20) };
+  const road = [P(-400, 50), P(-60, 50), P(60, 50), P(400, 50)]; // passes 30 m north of the line
+  const open = generateVectors({ lops: [lop], assets: [asset], roads: [road], maxResults: 50 });
+  assert.ok(open.candidates.some((c) => c.kind === 'open'));
+  const r = generateVectors({ lops: [lop], assets: [asset], roads: [road], maxResults: 50, openGround: false });
+  assert.ok(r.candidates.length);
+  for (const c of r.candidates) {
+    assert.equal(c.kind, 'road');
+    // Every point but the last two (the line crossing and just past it) lies on the road.
+    for (const q of c.points.slice(0, -2)) assert.ok(Math.abs(q.y - 50) < 1e-6, JSON.stringify(c.points));
+  }
+});
