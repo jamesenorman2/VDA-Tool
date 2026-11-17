@@ -169,3 +169,4 @@ button.icon { background: transparent; border: 1px solid transparent; font-size:
   #detail-box, #app.side-hidden #detail-box { position: fixed; left: 0; right: 0; top: auto; bottom: 0; width: auto; max-height: 45%; border-radius: 12px 12px 0 0; }
   #steps button { font-size: .72rem; }
 }
+.madeby { text-align: center; font-size: .72rem; color: var(--muted); margin: .2rem 1rem .6rem; }

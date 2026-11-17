@@ -50,3 +50,5 @@ li { margin: .15rem 0; }
   .page-break { break-before: page; }
 }
 .toolbar .user { display: inline-flex; gap: .4rem; align-items: center; font-size: .8rem; } .toolbar .user a { color: #fff; }
+.madeby { text-align: center; font-size: 8.5pt; color: #6b7280; margin: 0 0 1.5rem; }
+@media print { .madeby { display: none; } }

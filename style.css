@@ -80,3 +80,4 @@ thead th { background: var(--thead); }
 .user { display: inline-flex; gap: .4rem; align-items: center; font-size: .75rem; }
 .user .vda-who { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .9; }
 .topbar .user a { color: inherit; }
+.madeby { text-align: center; font-size: .75rem; color: var(--muted); margin: 1.5rem 0 1rem; }
