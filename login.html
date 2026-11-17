@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('vda-theme') || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
+<title>VDA Tool – Sign in</title>
+<meta name="description" content="Sign in to the VDA Tool. Access is limited to an allow list.">
+<style>
+:root{--bg:#f5f6f8;--panel:#fff;--ink:#1b1f24;--muted:#5d6670;--line:#d8dde3;--head:#eef1f4;--accent:#1f5fae;--ok:#178a3a;--okbg:#e6f4ea;--bad:#c62828;--badbg:#fdecea}
+:root[data-theme="dark"]{--bg:#111418;--panel:#1a1f25;--ink:#e7eaee;--muted:#9aa4ae;--line:#2e353d;--head:#222830;--accent:#6aa7ff;--ok:#4cc76f;--okbg:#16301f;--bad:#ff6161;--badbg:#3a1a1a}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:24px;width:100%;max-width:420px}
+h1{font-size:20px;margin:0 0 4px}
+p{margin:6px 0}
+.muted{color:var(--muted);font-size:13px}
+label{display:block;font-size:12px;color:var(--muted);margin:16px 0 4px}
+input{width:100%;font:inherit;padding:9px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink)}
+button{width:100%;font:inherit;font-weight:600;padding:10px;border-radius:6px;border:1px solid var(--line);background:var(--head);color:var(--ink);cursor:pointer;margin-top:10px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.6;cursor:default}
+.or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;margin:18px 0 4px}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
+.msg{margin-top:14px;padding:10px 12px;border-radius:6px;font-size:13px;display:none}
+.msg.ok{display:block;background:var(--okbg);color:var(--ok)}
+.msg.bad{display:block;background:var(--badbg);color:var(--bad)}
+.g{display:inline-flex;align-items:center;gap:8px;justify-content:center}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="auth.js"></script>
+<script type="module">import { VERSION } from './src/version.js'; import { mountThemeToggle } from './src/theme.js'; document.querySelectorAll('.ver').forEach((e) => { e.textContent = 'v' + VERSION; }); const t = document.getElementById('theme'); if (t) mountThemeToggle(t);</script>
+</head>
+<body>
+<main class="card">
+  <h1>VDA Tool <span class="ver muted"></span></h1>
+  <p class="muted">Hostile vehicle mitigation: vehicle dynamics assessment.</p>
+  <p class="muted">Access is limited to people on the allow list.</p>
+
+  <div id="signedIn" style="display:none">
+    <p style="margin-top:16px">Signed in as <b id="whoami"></b>.</p>
+    <p class="muted" id="notAllowed" style="display:none">This account is not on the allow list. Ask the administrator to add it, or sign out and use another account.</p>
+    <button id="continueBtn" class="primary" style="display:none">Continue</button>
+    <button id="outBtn">Sign out</button>
+  </div>
+
+  <div id="signedOut">
+    <form id="form">
+      <label for="email">Work email</label>
+      <input id="email" type="email" autocomplete="email" required placeholder="name@aecom.com">
+      <button class="primary" id="sendBtn" type="submit">Email me a sign-in link</button>
+    </form>
+    <form id="codeForm" style="display:none">
+      <label for="code">Or type the 6-digit code from the email</label>
+      <input id="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6,10}" placeholder="123456">
+      <button class="primary" type="submit">Sign in with code</button>
+    </form>
+    <div class="or">or</div>
+    <button id="googleBtn" type="button"><span class="g"><svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Continue with Google</span></button>
+  </div>
+
+  <div class="msg" id="msg" role="status"></div>
+  <p class="muted" style="margin-top:18px">No email arriving? The administrator can create a one-time sign-in link for you from the Admin page.</p>
+  <p class="muted" style="margin-top:10px"><button id="theme" type="button" style="width:auto;padding:4px 10px;font-weight:400"></button></p>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const next = (() => { const n = params.get('next') || '/'; return n.startsWith('/') && !n.startsWith('//') ? n : '/'; })();
+const show = (txt, ok) => { const m = $('msg'); m.textContent = txt; m.className = 'msg ' + (ok ? 'ok' : 'bad'); };
+const reasons = { expired: 'Your session has expired. Please sign in again.', not_allowed: 'That account is not on the allow list.', admin_only: 'That page is for administrators only.' };
+if (reasons[params.get('reason')]) show(reasons[params.get('reason')], false);
+const hashErr = new URLSearchParams(location.hash.slice(1)).get('error_description');
+if (hashErr) show(hashErr.replace(/\+/g, ' ') + '. Links work once, and a newer email cancels older ones. Some work email systems open links to scan them, which uses them up. Request a new email and type the code instead.', false);
+
+async function refresh() {
+  if (!window.VDA_AUTH) { show('Sign-in service could not load. Check your connection and refresh.', false); return; }
+  const s = await VDA_AUTH.session();
+  if (!s) { $('signedIn').style.display = 'none'; $('signedOut').style.display = ''; return; }
+  $('signedOut').style.display = 'none'; $('signedIn').style.display = '';
+  $('whoami').textContent = s.user.email;
+  const role = await VDA_AUTH.role();
+  if (role) { $('continueBtn').style.display = ''; $('notAllowed').style.display = 'none'; if (!params.get('reason')) location.replace(next); }
+  else { $('continueBtn').style.display = 'none'; $('notAllowed').style.display = ''; }
+}
+
+$('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = $('email').value.trim().toLowerCase();
+  $('sendBtn').disabled = true;
+  try {
+    const { data: allowed } = await VDA_AUTH.sb.rpc('vda_email_allowed', { p_email: email });
+    if (allowed) {
+      const { error } = await VDA_AUTH.sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + '/login.html?next=' + encodeURIComponent(next), shouldCreateUser: true } });
+      if (error) throw error;
+    }
+    // Same message either way, so the page does not reveal who is on the list.
+    show('If ' + email + ' is on the allow list, a sign-in email is on its way. Click the link, or type the code it contains below. Check your junk folder too.', true);
+    $('codeForm').style.display = '';
+    sentTo = email;
+  } catch (err) {
+    const m = String(err.message || err);
+    if (/rate limit/i.test(m)) show('Too many sign-in emails have been sent in the last hour. Wait a while and try again, use Continue with Google, or ask the administrator for a one-time sign-in link.', false);
+    else show('Could not send the link: ' + m, false);
+  } finally { $('sendBtn').disabled = false; }
+});
+let sentTo = '';
+$('codeForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = sentTo || $('email').value.trim().toLowerCase();
+  const { error } = await VDA_AUTH.sb.auth.verifyOtp({ email, token: $('code').value.trim(), type: 'email' });
+  if (error) show('That code did not work: ' + error.message + '. Request a new email and use the newest code.', false);
+  else refresh();
+});
+$('googleBtn').onclick = async () => {
+  const { error } = await VDA_AUTH.sb.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: location.origin + '/login.html?next=' + encodeURIComponent(next) } });
+  if (error) show('Google sign-in is not available: ' + error.message, false);
+};
+$('continueBtn').onclick = () => location.replace(next);
+$('outBtn').onclick = () => VDA_AUTH.signOut();
+if (window.VDA_AUTH) VDA_AUTH.sb.auth.onAuthStateChange(ev => { if (ev === 'SIGNED_IN') refresh(); });
+refresh();
+</script>
+</body>
+</html>
