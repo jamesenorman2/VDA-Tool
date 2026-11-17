@@ -508,13 +508,18 @@ $('lop-auto').addEventListener('click', () => {
   const d = parseFloat($('standoff').value);
   if (!(d > 0)) { $('osm-status').textContent = 'Enter a standoff above 0 m.'; return; }
   pushHistory();
-  // Smooth out tiny notches in mapped outlines first, so the standoff line has no kinks or loops.
-  const ring = simplify([...a.points, a.points[0]], Math.min(0.5, d / 10)).slice(0, -1);
-  const l = { id: uid('lop'), name: `Line ${project.lops.length + 1} (${d} m round ${a.name})`, points: simplify(offsetPolygon(ring.length >= 3 ? ring : a.points, d, 30, true), 0.05), closed: true, standoff: d, assetId: a.id };
+  const l = makeStandoffLop(a, d);
   project.lops.push(l);
   selected = { kind: 'lop', id: l.id }; selectedVertex = null;
   save(); renderAll();
 });
+
+// A closed line of protection at the standoff round an asset.
+function makeStandoffLop(a, d) {
+  // Smooth out tiny notches in mapped outlines first, so the standoff line has no kinks or loops.
+  const ring = simplify([...a.points, a.points[0]], Math.min(0.5, d / 10)).slice(0, -1);
+  return { id: uid('lop'), name: `Line ${project.lops.length + 1} (${d} m round ${a.name})`, points: simplify(offsetPolygon(ring.length >= 3 ? ring : a.points, d, 30, true), 0.05), closed: true, standoff: d, assetId: a.id };
+}
 
 // ---------- map interaction ----------
 map.on('click', (e) => {
@@ -1053,7 +1058,16 @@ function renderShapeDetail(box, item) {
 // ---------- find attack vectors ----------
 $('ag-run').addEventListener('click', async () => {
   if (guard()) return;
-  if (!project.lops.length) { $('ag-status').textContent = 'Add a line of protection first (Site → Line of protection).'; return; }
+  let made = '';
+  if (!project.lops.length) {
+    // No line yet: put one at the standoff round each asset, as "Create around the asset" would.
+    if (!project.assets.length) { $('ag-status').textContent = 'Add an asset first (Site → Asset), then press Find attack vectors.'; return; }
+    const d = parseFloat($('standoff').value) > 0 ? parseFloat($('standoff').value) : 10;
+    pushHistory();
+    for (const a of project.assets) project.lops.push(makeStandoffLop(a, d));
+    made = `Added a line of protection ${d} m round ${project.assets.length === 1 ? project.assets[0].name : 'each asset'}. You can edit or replace it under Site. `;
+    save(); renderAll();
+  }
   const radius = Math.min(1000, Math.max(50, +$('ag-radius').value || 440));
   const keep = Math.min(50, Math.max(1, +$('ag-max').value || 10));
   const btn = $('ag-run'); btn.disabled = true;
@@ -1063,13 +1077,13 @@ $('ag-run').addEventListener('click', async () => {
     const c = { x: (Math.min(...pts.map((q) => q.x)) + Math.max(...pts.map((q) => q.x))) / 2, y: (Math.min(...pts.map((q) => q.y)) + Math.max(...pts.map((q) => q.y))) / 2 };
     const reach = Math.max(...pts.map((q) => dist(q, c))) + radius + 20;
     if (!project.osm || dist(c, project.osm.centre) + reach > project.osm.radius) {
-      $('ag-status').textContent = 'Loading buildings and roads for the study area…';
+      $('ag-status').textContent = `${made}Loading buildings and roads for the study area…`;
       const ll = toLL(c);
       $('ag-radius').dataset.reach = String(Math.round(reach));
       await loadOSM({ lng: ll[0], lat: ll[1] }, reach);
       if (!project.osm || dist(c, project.osm.centre) + reach > project.osm.radius) $('ag-status').textContent = 'Map data could not be loaded for the whole study area, so results may miss buildings.';
     }
-    $('ag-status').textContent = 'Searching…';
+    $('ag-status').textContent = `${made}Searching…`;
     await new Promise((r) => setTimeout(r, 30));
     const t0 = performance.now();
     const res = await runSearch({
@@ -1086,7 +1100,7 @@ $('ag-run').addEventListener('click', async () => {
       project.vectors.push(newVector({ name: `G${project.vectorCounter++}`, source: 'generated', status: 'suggested', start: c.start, points: c.points, vertexOptions: c.vertexOptions, note: c.note, kind: c.kind }));
     }
     const secs = ((performance.now() - t0) / 1000).toFixed(1);
-    $('ag-status').textContent = `${n} suggestions from ${res.stats.samples.toLocaleString()} candidate routes (${secs} s). They are dashed on the map: open each to accept or reject it.`;
+    $('ag-status').textContent = `${made}${n} suggestions from ${res.stats.samples.toLocaleString()} candidate routes (${secs} s). They are dashed on the map: open each to accept or reject it.`;
     selected = null; save(); renderAll();
   } catch (e) {
     $('ag-status').textContent = `The search failed: ${e.message}`;
