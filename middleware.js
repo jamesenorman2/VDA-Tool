@@ -1,7 +1,7 @@
 // Vercel Routing Middleware: every page except the login page requires a signed-in,
 // allow-listed user. Runs on Vercel's edge before any file is served.
 export const config = {
-  matcher: ['/((?!login\\.html|auth\\.js|api/|favicon\\.ico|src/version\\.js|src/theme\\.js).*)'],
+  matcher: ['/((?!login\\.html|auth\\.js|api/|favicon\\.ico|icons/|site\\.webmanifest|src/version\\.js|src/theme\\.js).*)'],
 };
 
 const SB_URL = 'https://rabgawsevqkcdpbxzgak.supabase.co';
