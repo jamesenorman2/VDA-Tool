@@ -77,3 +77,6 @@ thead th { background: var(--thead); }
 }
 @media (max-width: 700px) { .row { grid-template-columns: 1fr 1fr; } }
 .compare td:nth-child(2), .compare th:nth-child(2) { text-align: right; }
+.user { display: inline-flex; gap: .4rem; align-items: center; font-size: .75rem; }
+.user .vda-who { max-width: 14rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: .9; }
+.topbar .user a { color: inherit; }

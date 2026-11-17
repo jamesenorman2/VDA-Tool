@@ -12,15 +12,27 @@
 <div id="app">
   <aside id="side">
     <header>
-      <h1>Map assessment <span class="version" id="version"></span></h1>
-      <nav><a href="index.html">Route calculator →</a><button id="theme" type="button"></button></nav>
+      <div class="hrow">
+        <h1>Map assessment <span class="version" id="version"></span></h1>
+        <button id="side-hide" class="icon" type="button" title="Hide the panel (more room for the map)" aria-label="Hide the panel">⟨</button>
+      </div>
+      <nav><a href="index.html">Route calculator →</a><button id="theme" type="button"></button><span id="vdaUser" class="user"></span></nav>
     </header>
 
     <p id="lock-banner" class="locked-banner" hidden></p>
-    <section id="checklist" aria-label="Assessment checklist">
-      <div class="ck-head"><b>Assessment checklist</b><span id="ck-score" class="pill"></span></div>
+    <nav id="steps" aria-label="Assessment steps">
+      <button type="button" data-step="site"><i></i><span>1</span>Site</button>
+      <button type="button" data-step="protect"><i></i><span>2</span>Protect</button>
+      <button type="button" data-step="vectors"><i></i><span>3</span>Vectors</button>
+      <button type="button" data-step="results"><i></i><span>4</span>Results</button>
+      <button type="button" data-step="report"><i></i><span>5</span>Report</button>
+    </nav>
+    <details id="checklist">
+      <summary><b>Checklist</b> <span id="ck-score" class="pill"></span><span class="ck-bar"><span id="ck-fill"></span></span></summary>
       <ol id="check-items"></ol>
-    </section>
+    </details>
+    <div id="steps-body">
+    <div class="step" data-step="site">
 
     <details id="sec-map" open>
       <summary>Map</summary>
@@ -78,6 +90,9 @@
       </div>
     </details>
 
+      <button type="button" class="next" data-next="protect">Next: asset and line of protection →</button>
+    </div>
+    <div class="step" data-step="protect">
     <details id="sec-draw" open>
       <summary>Site</summary>
       <div class="body">
@@ -102,14 +117,12 @@
           <button data-tool="obstacle-draw">Draw obstacle</button>
         </div>
         <p class="hint" id="osm-status">Buildings, walls, lakes, ponds and rivers stop vehicles. Data comes from OpenStreetMap.</p>
-        <div class="btnrow">
-          <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
-          <button id="map-clear" title="Remove every asset, line of protection, obstacle and vector">Clear map</button>
-          <label class="chk"><input type="checkbox" id="snap" checked> Snap to points and edges</label>
-        </div>
       </div>
     </details>
 
+      <button type="button" class="next" data-next="vectors">Next: attack vectors →</button>
+    </div>
+    <div class="step" data-step="vectors">
     <details id="sec-vectors" open>
       <summary>Vectors <span id="vec-count" class="pill"></span></summary>
       <div class="body">
@@ -124,7 +137,7 @@
               <option value="open">Roads and open ground (grass, verges, car parks)</option>
             </select></label>
           <button id="ag-run" class="primary">Find attack vectors</button>
-          <p class="hint" id="ag-status">Searches for the fastest approaches to each line of protection. "Follow roads" keeps to the mapped roads, service roads and paths, and leaves them only for the last stretch to the line. "Roads and open ground" also tries straight runs across open land and round building corners. Buildings, walls, lakes, ponds and rivers block every route. Results are suggestions: accept or reject each one.</p>
+          <p class="hint" id="ag-status">Finds the fastest approaches to each line of protection. Buildings, walls, lakes, ponds and rivers block every route. Results are suggestions: accept or reject each one.</p>
         </div>
         <button data-tool="vector-draw">Draw a vector yourself</button>
         <label>Speeds in
@@ -139,8 +152,9 @@
       </div>
     </details>
 
-    <section id="detail-box" aria-live="polite"><div id="vec-detail"></div></section>
-
+      <button type="button" class="next" data-next="results">Next: required protection →</button>
+    </div>
+    <div class="step" data-step="results">
     <details id="sec-req" open>
       <summary>Required protection <span id="req-count" class="pill"></span></summary>
       <div class="body">
@@ -150,7 +164,10 @@
       </div>
     </details>
 
-    <details id="sec-project">
+      <button type="button" class="next" data-next="report">Next: project details and report →</button>
+    </div>
+    <div class="step" data-step="report">
+    <details id="sec-project" open>
       <summary>Project and report</summary>
       <div class="body">
         <label>Assessment title <input id="title" maxlength="80"></label>
@@ -202,7 +219,17 @@
         </ul>
       </div>
     </details>
+    </div>
+    </div>
+    <footer id="side-foot">
+      <button id="undo" title="Undo (Ctrl+Z)">Undo</button>
+      <button id="map-clear" title="Remove every asset, line of protection, obstacle and vector">Clear map</button>
+      <label class="chk"><input type="checkbox" id="snap" checked> Snap</label>
+    </footer>
   </aside>
+  <div id="side-resize" role="separator" aria-orientation="vertical" aria-label="Resize the panel" tabindex="0" title="Drag to resize the panel"></div>
+  <button id="side-show" type="button" hidden title="Show the panel">☰ Panel</button>
+  <section id="detail-box" aria-live="polite" aria-label="Selected item"><button id="detail-close" class="icon" type="button" title="Close (Esc)" aria-label="Close">×</button><div id="vec-detail"></div></section>
   <div id="map" aria-label="Map"></div>
   <div id="drawbar" hidden>
     <div class="db-top"><b id="db-title"></b><span id="db-measure"></span></div>
@@ -216,6 +243,8 @@
   <div id="legend" aria-label="Impact speed colours"></div>
 </div>
 <script src="config.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script defer src="auth.js"></script>
 <script src="vendor/maplibre-gl-4.7.1/maplibre-gl.js"></script>
 <script type="module" src="src/mapapp.js"></script>
 </body>

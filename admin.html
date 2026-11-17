@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('vda-theme') || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
+<title>VDA Tool – Admin</title>
+<meta name="description" content="Manage who can sign in to the VDA Tool.">
+<style>
+:root{--bg:#f5f6f8;--panel:#fff;--ink:#1b1f24;--muted:#5d6670;--line:#d8dde3;--head:#eef1f4;--accent:#1f5fae;--ok:#178a3a;--okbg:#e6f4ea;--bad:#c62828;--badbg:#fdecea}
+:root[data-theme="dark"]{--bg:#111418;--panel:#1a1f25;--ink:#e7eaee;--muted:#9aa4ae;--line:#2e353d;--head:#222830;--accent:#6aa7ff;--ok:#4cc76f;--okbg:#16301f;--bad:#ff6161;--badbg:#3a1a1a}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:14px 16px;border-bottom:1px solid var(--line);background:var(--panel);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+header h1{font-size:18px;margin:0}.spacer{flex:1}
+.navlink{color:var(--accent);font-weight:600;text-decoration:none;padding:5px 8px;border:1px solid var(--line);border-radius:5px;background:var(--head)}
+#vdaUser{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted)}
+main{max-width:1100px;margin:0 auto;padding:16px;display:grid;gap:16px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;min-width:0}
+h2{font-size:15px;margin:0 0 10px}
+.muted{color:var(--muted);font-size:13px}
+input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink)}
+button{font:inherit;padding:6px 10px;border:1px solid var(--line);border-radius:5px;background:var(--head);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%}
+th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:middle}
+th{background:var(--head)}
+.msg{padding:8px 10px;border-radius:6px;font-size:13px;display:none;margin-top:10px;word-break:break-all}
+.msg.ok{display:block;background:var(--okbg);color:var(--ok)}.msg.bad{display:block;background:var(--badbg);color:var(--bad)}
+textarea{width:100%;font:12px ui-monospace,monospace;padding:8px;border:1px solid var(--line);border-radius:5px;background:var(--bg);color:var(--ink)}
+@media (max-width:640px){main{padding:12px 16px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="auth.js"></script>
+<script type="module">import { VERSION } from './src/version.js'; import { mountThemeToggle } from './src/theme.js'; document.querySelectorAll('.ver').forEach((e) => { e.textContent = 'v' + VERSION; }); const t = document.getElementById('theme'); if (t) mountThemeToggle(t);</script>
+</head>
+<body>
+<header>
+  <h1>VDA Tool admin: access <span class="ver muted" style="font-size:12px;font-weight:400"></span></h1>
+  <span class="spacer"></span>
+  <span id="vdaUser"></span>
+  <button id="theme" type="button"></button>
+  <a class="navlink" href="map.html">← Map</a>
+  <a class="navlink" href="index.html">Calculator</a>
+</header>
+<main>
+  <section>
+    <h2>Add a person</h2>
+    <form class="row" id="addForm">
+      <input id="newEmail" type="email" required placeholder="name@aecom.com" style="flex:1;min-width:220px">
+      <select id="newRole"><option value="user">User</option><option value="admin">Admin</option></select>
+      <input id="newNote" placeholder="Note (optional)" style="flex:1;min-width:160px">
+      <button class="primary" type="submit">Add to allow list</button>
+    </form>
+    <div class="msg" id="addMsg"></div>
+  </section>
+
+  <section>
+    <h2>Allow list</h2>
+    <p class="muted">Only these email addresses can open the VDA Tool. This list is separate from the Blast Tool’s, though people sign in with the same account. You cannot remove yourself, so there is always at least one admin.</p>
+    <div class="tbl"><table id="list"><tr><td>Loading…</td></tr></table></div>
+    <div class="msg" id="listMsg"></div>
+  </section>
+
+  <section>
+    <h2>Sign-in link</h2>
+    <p class="muted"><b>Email link</b> asks Supabase to send the person a sign-in email. <b>Create link</b> makes a one-time link that you can send yourself, by Outlook or Teams. It works even if their email server blocks Supabase’s mail. Links are single use and expire (default 1 hour).</p>
+    <textarea id="linkOut" rows="3" readonly placeholder="A created link appears here"></textarea>
+    <div class="row" style="margin-top:6px"><button id="copyBtn" type="button">Copy link</button></div>
+    <div class="msg" id="linkMsg"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const msg = (id, t, ok) => { const m = $(id); m.textContent = t; m.className = 'msg ' + (ok ? 'ok' : 'bad'); };
+let me = '';
+
+async function load() {
+  const s = await VDA_AUTH.session();
+  me = s ? s.user.email.toLowerCase() : '';
+  const { data, error } = await VDA_AUTH.sb.from('vda_allowed_users').select('*').order('role').order('email');
+  if (error) { msg('listMsg', error.message, false); return; }
+  $('list').innerHTML = `<thead><tr><th>Email</th><th>Role</th><th>Note</th><th>Added</th><th>Actions</th></tr></thead><tbody>` +
+    data.map(u => `<tr data-email="${esc(u.email)}">
+      <td>${esc(u.email)}${u.email === me ? ' <span class="muted">(you)</span>' : ''}</td>
+      <td><select data-act="role" ${u.email === me ? 'disabled' : ''}><option value="user" ${u.role==='user'?'selected':''}>User</option><option value="admin" ${u.role==='admin'?'selected':''}>Admin</option></select></td>
+      <td>${esc(u.note)}</td>
+      <td class="muted">${new Date(u.added_at).toLocaleDateString()}${u.added_by ? ' · ' + esc(u.added_by) : ''}</td>
+      <td class="row"><button data-act="email">Email link</button><button data-act="create">Create link</button>${u.email === me ? '' : '<button data-act="remove">Remove</button>'}</td>
+    </tr>`).join('') + '</tbody>';
+}
+
+$('addForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = $('newEmail').value.trim().toLowerCase();
+  const { error } = await VDA_AUTH.sb.from('vda_allowed_users').insert({ email, role: $('newRole').value, note: $('newNote').value.trim() || null, added_by: me });
+  if (error) return msg('addMsg', error.code === '23505' ? 'That email is already on the list.' : error.message, false);
+  msg('addMsg', email + ' added. Use “Email link” or “Create link” below to let them in.', true);
+  $('addForm').reset(); load();
+});
+
+$('list').addEventListener('change', async e => {
+  if (e.target.dataset.act !== 'role') return;
+  const email = e.target.closest('tr').dataset.email;
+  const { error } = await VDA_AUTH.sb.from('vda_allowed_users').update({ role: e.target.value }).eq('email', email);
+  msg('listMsg', error ? error.message : `${email} is now ${e.target.value}.`, !error);
+});
+
+$('list').addEventListener('click', async e => {
+  const act = e.target.dataset.act; if (!act || act === 'role') return;
+  const email = e.target.closest('tr').dataset.email;
+  if (act === 'remove') {
+    if (!confirm('Remove ' + email + ' from the allow list? They lose access straight away.')) return;
+    const { error } = await VDA_AUTH.sb.from('vda_allowed_users').delete().eq('email', email);
+    msg('listMsg', error ? error.message : email + ' removed.', !error); load();
+  }
+  if (act === 'email') {
+    const { error } = await VDA_AUTH.sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + '/login.html', shouldCreateUser: true } });
+    msg('linkMsg', error ? 'Could not send: ' + error.message : 'Sign-in email sent to ' + email + '.', !error);
+  }
+  if (act === 'create') {
+    e.target.disabled = true;
+    try {
+      const s = await VDA_AUTH.session();
+      const r = await fetch('/api/magic-link', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + s.access_token }, body: JSON.stringify({ email }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      $('linkOut').value = j.link;
+      msg('linkMsg', 'One-time link for ' + email + ' created. Copy it and send it to them. ' + (j.note || ''), true);
+    } catch (err) { msg('linkMsg', 'Could not create link: ' + err.message, false); }
+    finally { e.target.disabled = false; }
+  }
+});
+$('copyBtn').onclick = async () => { if (!$('linkOut').value) return; try { await navigator.clipboard.writeText($('linkOut').value); msg('linkMsg', 'Link copied.', true); } catch (e) { $('linkOut').select(); } };
+
+if (window.VDA_AUTH) load(); else msg('listMsg', 'Sign-in service could not load.', false);
+</script>
+</body>
+</html>

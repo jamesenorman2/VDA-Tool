@@ -6,12 +6,14 @@
 <title>VDA Tool – Vehicle Dynamics Assessment</title>
 <script>try { document.documentElement.dataset.theme = localStorage.getItem('vda-theme') || 'dark'; } catch (e) { document.documentElement.dataset.theme = 'dark'; }</script>
 <link rel="stylesheet" href="style.css">
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script defer src="auth.js"></script>
 </head>
 <body>
 <header class="d-print-none topbar">
   <div><h1>Vehicle Dynamics Assessment <span class="version" id="version"></span></h1>
   <p>Maximum vehicle speeds along an approach route to an asset.</p></div>
-  <nav><a href="map.html">Map assessment →</a><button id="theme" type="button"></button></nav></header>
+  <nav><a href="map.html">Map assessment →</a><button id="theme" type="button"></button><span id="vdaUser" class="user"></span></nav></header>
 <header class="print-only"><h1 id="print-title"></h1><p id="print-summary"></p><p class="hint" id="print-version"></p></header>
 <main>
   <section class="panel d-print-none" id="settings">

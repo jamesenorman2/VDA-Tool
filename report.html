@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VDA Tool – Report</title>
 <link rel="stylesheet" href="report.css">
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script defer src="auth.js"></script>
 </head>
 <body>
 <div class="toolbar" id="toolbar">
@@ -15,6 +17,7 @@
   <label class="tbtn" title="Use your own Word template (.docx) for the Word download. It is kept in this browser only.">Word template… <input id="tpl-file" type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"></label>
   <span id="tpl-state" class="tpl-state"></span>
   <button id="tpl-remove" hidden>Remove template</button>
+  <span id="vdaUser" class="user"></span>
   <span id="status" class="status" aria-live="polite"></span>
 </div>
 <div class="marking-top" id="mark-top"></div>

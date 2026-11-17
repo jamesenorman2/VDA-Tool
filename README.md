@@ -35,3 +35,7 @@ Sections are stored nearest-asset first and always shown and entered from the st
 Planned map-based workflow: see `docs/spec-map-attack-vectors.md` and `docs/plan-p0-p1.md`.
 
 Checking against NPSA HOVVA (which takes sections from the asset outwards): see `docs/verification/npsa-check.md` (`npm run verify:cases` regenerates it, `npm run verify:compare` compares results).
+
+## Sign-in
+
+The site is limited to an allow list. People sign in on `login.html` with an emailed link or code, or with Google. Admins manage the list on `admin.html`. Accounts are shared with the Blast Tool (same Supabase project); the allow list (`vda_allowed_users`) is the VDA Tool's own. `middleware.js` enforces it on Vercel; running locally with `npm start` has no sign-in.

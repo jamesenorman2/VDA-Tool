@@ -13,6 +13,7 @@ import { area, perimeter, polylineLength, dist, centroid, pointInPolygon, neares
 import { fetchOSM, fetchBuildingAt } from './osm.js';
 import { generateVectors } from './autogen.js';
 import { requiredProtection } from './summary.js';
+import { initPanel, goTo, setStepStates, STEP_OF } from './panel.js';
 
 const KEY_PROJECT = 'vda-map-project-v1', KEY_MAPTILER = 'vda-maptiler-key', KEY_CALC = 'vda-tool-state-v1';
 const $ = (id) => document.getElementById(id);
@@ -683,6 +684,7 @@ document.addEventListener('keydown', (e) => {
     if (e.key === 'Backspace') { e.preventDefault(); mode.points.pop(); renderTemp(); }
   } else if ((mode?.kind === 'pick' || mode?.kind === 'tap' || mode?.kind === 'cap') && e.key === 'Escape') cancelMode();
   else if (!mode && !typing && selected && (e.key === 'Delete' || e.key === 'Backspace')) { e.preventDefault(); if (selectedVertex != null) deleteVertex(); else deleteSelected(); }
+  else if (!mode && selected && e.key === 'Escape') { selected = null; selectedVertex = null; renderAll(); }
 });
 
 const MIN_POINTS = { asset: 3, obstacle: 3, lop: 2, vector: 2 };
@@ -830,7 +832,7 @@ function renderAll(fast) {
     el.className = 'sec-tag'; el.style.setProperty('--c', x.worst != null ? bandColour(x.worst) : '#888');
     el.textContent = x.worst != null ? `${x.label} · ${Math.round(conv(x.worst))}` : x.label;
     el.title = x.worst != null ? `Section ${x.label}: up to ${Math.round(conv(x.worst))} ${unitName()} (${x.governing.name})` : `Section ${x.label}: no accepted vector yet`;
-    el.addEventListener('click', (ev) => { ev.stopPropagation(); if (mode) return; selected = { kind: 'lop', id: x.lopId }; selectedVertex = null; renderAll(); $('sec-req').open = true; $('sec-req').scrollIntoView({ block: 'nearest' }); });
+    el.addEventListener('click', (ev) => { ev.stopPropagation(); if (mode) return; selected = { kind: 'lop', id: x.lopId }; selectedVertex = null; renderAll(); goTo('sec-req'); });
     secTags.push(new maplibregl.Marker({ element: el, offset: [0, 0] }).setLngLat(toLL(midpointOf(x.points))).addTo(map));
   }
   // Speed-limiting features on vectors.
@@ -873,11 +875,11 @@ $('vec-list').addEventListener('click', (e) => {
   const b = e.target.closest('[data-vec]'); if (!b) return;
   selected = { kind: 'vector', id: b.dataset.vec }; selectedVertex = null; renderAll(); revealDetail();
 });
-// Bring the details into view after selecting something (they sit lower in the side panel).
-function revealDetail() {
-  if (!selected) return;
-  requestAnimationFrame(() => $('detail-box').scrollIntoView({ block: 'nearest', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }));
-}
+// The details of what is selected float over the map (a sheet at the bottom on phones), so the
+// panel keeps its place. Nothing to scroll; kept as a hook for selection changes.
+function revealDetail() {}
+$('detail-close').addEventListener('click', () => { selected = null; selectedVertex = null; renderAll(); });
+initPanel({ layout: () => map.resize() });
 $('unit').addEventListener('change', (e) => { project.settings.unit = e.target.value; save(); renderAll(); });
 
 function renderDetail() {
@@ -1394,7 +1396,17 @@ function renderChecklist() {
   const done = items.filter((c) => c.state === 'ok').length;
   $('ck-score').textContent = `${done} of ${items.length}`;
   $('check-items').innerHTML = items.map((c, i) => `<li class="${c.state === 'ok' ? 'ok' : c.state === 'warn' ? 'warn2' : 'todo'}"><span aria-hidden="true">${c.state === 'ok' ? '✓' : c.state === 'warn' ? '!' : '○'}</span><button data-go="${c.go}" data-i="${i}">${esc(c.text)}</button></li>`).join('');
-  $('check-items').querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => { const el = $(b.dataset.go); if (el.tagName === 'DETAILS') el.open = true; el.scrollIntoView({ block: 'start', behavior: 'smooth' }); }; });
+  $('check-items').querySelectorAll('[data-go]').forEach((b) => { b.onclick = () => goTo(b.dataset.go); });
+  $('ck-fill').style.width = `${Math.round((100 * done) / items.length)}%`;
+  // A dot on each step: green when its required items are done, amber when one needs attention.
+  const states = {};
+  for (const c of items) {
+    const st = STEP_OF[c.go]; if (!st) continue;
+    const now = c.state === 'warn' ? 'warn' : c.state === 'ok' ? 'ok' : c.required ? 'todo' : 'ok';
+    const rank = { ok: 0, todo: 1, warn: 2 };
+    if (!states[st] || rank[now] > rank[states[st]]) states[st] = now;
+  }
+  setStepStates(states);
 }
 
 const capsText = (v) => (v.caps || []).map((c) => (c.type === 'stop' ? 'forced stop' : `${(CAP_TYPES[c.type] || 'limit').toLowerCase()} ≤${Math.round(conv(c.kph))} ${unitName()}`)).join('; ');
